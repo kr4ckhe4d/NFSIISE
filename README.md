@@ -5,12 +5,25 @@ NFSIISE
 
 Cross-platform wrapper for the Need For Speed™ II SE game with 3D acceleration and TCP protocol!
 
+### About this fork
+
+This fork of [zaps166/NFSIISE](https://github.com/zaps166/NFSIISE) adds a remastered look to the desktop OpenGL 2 renderer while keeping the original game:
+
+* **true widescreen** (Hor+) - ultrawide and 16:9 screens show a wider field of view, HUD and menus stay 4:3,
+* **modern image quality** - supersampling, MSAA, FXAA, sharpening, mipmaps with anisotropic filtering,
+* **lighting and atmosphere** - ambient occlusion, HDR bloom, filmic grading, accurate per-pixel fog,
+* **HD texture packs** - dump the game textures, upscale them (e.g. with AI upscalers) and load them back.
+
+See [Graphics enhancements](#graphics-enhancements-opengl-2) for details. Everything can be toggled in game with `Alt+P` to compare with the original look.
+
 ## GIT clone:
 
 Don't forget to update submodules:
 ```sh
 git submodule update --init --recursive
 ```
+
+The game code is in `src/Asm/NFS2SE.asm` (in this fork it is part of the repository, patched for widescreen) and `src/Cpp` (submodule, used only by the `cpp` build).
 
 ## OpenGL
 
@@ -121,19 +134,57 @@ sudo apt install gcc-multilib
 
 ## Graphics enhancements (OpenGL 2):
 
-The desktop OpenGL 2 renderer can make the game look considerably more modern. Everything is configured in `nfs2se.conf` (see the "Graphics enhancements" section of the template) and enabled by default:
+Available in the desktop OpenGL 2 build (the default `./compile_nfs`). Everything is configured in `nfs2se.conf` (see the "Graphics enhancements" section of `nfs2se.conf.template`) and enabled by default. Existing configuration files keep working - missing options use the defaults.
 
-* supersampling (`RenderScale`) and off-screen `MSAA`, FXAA and contrast adaptive sharpening,
-* mipmaps with anisotropic filtering (no more shimmering road textures), coverage-preserving mipmaps for cut-out textures (trees, fences),
-* per-pixel evaluation of the Glide fog table (correct aerial perspective on large polygons),
-* screen-space ambient occlusion, HDR bloom, filmic grading, vignette and optional film grain,
-* HD texture packs: dump textures with `TextureDump=1`, upscale them (e.g. `tools/hd-textures/upscale.sh` with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)) and they are loaded from `~/.nfs2se/textures` or `textures` next to the game.
+### Widescreen
 
-* true widescreen (Hor+, `Widescreen=1`): on windows wider than 4:3 the game renders a wider field of view instead of stretching or pillarboxing, while the HUD and menus stay 4:3 in the middle (x86 build: the game code in `src/Asm` is patched for it).
+On windows wider than 4:3 the game renders a wider horizontal field of view (Hor+) instead of stretching or pillarboxing the picture. The HUD, the rear-view mirror and menus stay 4:3 in the middle of the screen, so they are never distorted. The sky backdrop is widened to reach the screen edges.
 
-2D elements (menus, HUD, text) are detected and kept pixel-exact. Hotkeys: `Alt+P` - toggle effects (compare with the original look), `Alt+S` - screenshot into `~/.nfs2se/screenshots`, `Alt+M` - cycle debug views (world mask, ambient occlusion, depth, bloom).
+* `Widescreen=1` - enabled (default), `Widescreen=0` - original 4:3 picture (see `KeepAspectRatio`).
+* Works with any aspect ratio (16:9, 21:9, 32:9); the field of view follows the window shape.
+* Requires the x86 build - the game code in `src/Asm` is patched for it. The `cpp` build shows a stretched picture.
+* After changing the window shape (e.g. `Alt+Enter`), the new field of view is used from the next race.
 
-Renderer changes can be tested without game data: `tools/gfxtest/run.sh out.png [Key=Value ...]` renders a synthetic scene through the Glide API headless (Xvfb).
+### Image quality
+
+* `RenderScale` - internal resolution multiplier. `2.0` renders at twice the resolution (4x supersampling) and downsamples, which gives the cleanest image. On very high resolution screens (e.g. 5120x2160) `1.0` - `1.5` is usually enough.
+* `MSAA` - off-screen multisample anti-aliasing (2, 4, 8, 16).
+* `FXAA`, `Sharpen` - post-process anti-aliasing and contrast adaptive sharpening.
+* `Mipmaps`, `AnisotropicFiltering` - removes shimmering of distant textures; cut-out textures (trees, fences) keep their shape at a distance.
+
+### Lighting and atmosphere
+
+* `AmbientOcclusion`, `AmbientOcclusionRadius` - screen-space ambient occlusion (contact shadows at walls, curbs, under cars and trees).
+* `Bloom`, `BloomThreshold` - glow of bright sky and lights.
+* `ToneMapping`, `Exposure`, `Contrast`, `Saturation`, `Warmth` - filmic grading.
+* `Vignette`, `FilmGrain` - camera effects.
+* `PerPixelFog` - the game's fog table is evaluated per pixel instead of per vertex, so distant scenery fades into the haze correctly.
+
+### HD texture packs
+
+Every game texture is identified by a hash of its content, so replacement textures can be made once and loaded automatically:
+
+1. Run the game with `TextureDump=1` and play the tracks and cars you want to cover - textures are saved as PNG into `~/.nfs2se/texdump`.
+2. Upscale them, e.g. with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN/releases) (`realesrgan-ncnn-vulkan`, runs on any Vulkan GPU):
+   ```sh
+   tools/hd-textures/upscale.sh /path/to/realesrgan-ncnn-vulkan-dir
+   ```
+   The script writes into `~/.nfs2se/textures` and skips already upscaled textures, so it can be re-run after dumping more.
+3. Run the game with `TextureReplace=1` (default). Textures are loaded from `~/.nfs2se/textures` or `textures` next to the game executable. File names are the texture hashes, e.g. `0123456789ABCDEF.png` (PNG, JPEG or TGA of any size; alpha is kept).
+
+### Hotkeys
+
+* `Alt+P` - toggle the effects (compare with the original look),
+* `Alt+S` - save a screenshot into `~/.nfs2se/screenshots`,
+* `Alt+M` - cycle debug views: world mask, ambient occlusion, depth, bloom.
+
+### Notes
+
+* 2D elements (menus, HUD, text) are detected automatically and kept pixel-exact; frames without 3D geometry (menus, loading screens) are not post-processed.
+* The effects cost GPU time mostly in ambient occlusion and supersampling. On integrated GPUs consider `RenderScale=1` and `AmbientOcclusion=0`.
+* `NFS2SE_GFX_STATS=1` environment variable prints statistics of the geometry sent by the game (useful when tuning the renderer).
+* Renderer changes can be tested without game data: `tools/gfxtest/run.sh out.png [Key=Value ...]` renders a synthetic scene through the Glide API headless (needs Xvfb), `GFXTEST_SRC=<other src dir> GFXTEST_OLD=1` renders the same scene with another (e.g. the original) renderer.
+* Third-party code: [stb_image and stb_image_write](https://github.com/nothings/stb) (public domain / MIT) in `src/Glide2x/thirdparty`.
 
 ## What works:
 
@@ -162,6 +213,8 @@ Renderer changes can be tested without game data: `tools/gfxtest/run.sh out.png 
 * F10 - brightness
 * F11 - reset car (player 1)
 * F12 - reset car (player 2)
+
+Graphics hotkeys (OpenGL 2): `Alt+P` - toggle effects, `Alt+S` - screenshot, `Alt+M` - debug views.
 
 ## Additional information:
 
