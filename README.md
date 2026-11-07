@@ -129,7 +129,7 @@ The desktop OpenGL 2 renderer can make the game look considerably more modern. E
 * screen-space ambient occlusion, HDR bloom, filmic grading, vignette and optional film grain,
 * HD texture packs: dump textures with `TextureDump=1`, upscale them (e.g. `tools/hd-textures/upscale.sh` with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)) and they are loaded from `~/.nfs2se/textures` or `textures` next to the game.
 
-* true widescreen (Hor+, `Widescreen=1`): on windows wider than 4:3 the game renders a wider field of view instead of stretching or pillarboxing, while the HUD and menus stay 4:3 in the middle (x86 build, needs the patched game code in `src/Asm`).
+* true widescreen (Hor+, `Widescreen=1`): on windows wider than 4:3 the game renders a wider field of view instead of stretching or pillarboxing, while the HUD and menus stay 4:3 in the middle (x86 build: the game code in `src/Asm` is patched for it).
 
 2D elements (menus, HUD, text) are detected and kept pixel-exact. Hotkeys: `Alt+P` - toggle effects (compare with the original look), `Alt+S` - screenshot into `~/.nfs2se/screenshots`, `Alt+M` - cycle debug views (world mask, ambient occlusion, depth, bloom).
 
