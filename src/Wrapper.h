@@ -78,6 +78,7 @@ typedef struct
 	float vignette;           /* Vignette strength (0 = off) */
 	float filmGrain;          /* Film grain strength (0 = off) */
 	float focalLength;        /* Game projection focal length in 640x480 pixels (used by SSAO) */
+	BOOL widescreen;          /* Hor+ widescreen: wider field of view on wide windows */
 } GfxSettings;
 extern GfxSettings gfx;
 

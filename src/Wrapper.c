@@ -67,8 +67,11 @@ GfxSettings gfx = {
 	0.35f, /* sharpen */
 	0.2f,  /* vignette */
 	0.0f,  /* filmGrain */
-	320.0f /* focalLength */
+	320.0f, /* focalLength */
+	true   /* widescreen */
 };
+/* X projection scale applied by the game code to full-width 3D views (set by the renderer) */
+float widescreenScale = 1.0f;
 volatile BOOL gfxPostToggleRequest = false;
 volatile BOOL gfxScreenshotRequest = false;
 volatile int32_t gfxDebugViewRequest = -1;
@@ -379,7 +382,8 @@ static BOOL parseGfxSetting(const char *line)
 		parseGfxFloat(line, "Sharpen", &gfx.sharpen, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "Vignette", &gfx.vignette, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "FilmGrain", &gfx.filmGrain, 0.0f, 1.0f) ||
-		parseGfxFloat(line, "FocalLength", &gfx.focalLength, 50.0f, 2000.0f);
+		parseGfxFloat(line, "FocalLength", &gfx.focalLength, 50.0f, 2000.0f) ||
+		parseGfxBool(line, "Widescreen", &gfx.widescreen);
 }
 
 #ifdef SWAP_WINDOW_AND_GL_THREAD

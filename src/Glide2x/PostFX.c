@@ -435,6 +435,7 @@ static const char g_postFinalSrc[] =
 	"uniform float uGrain;\n"
 	"uniform float uGamma;\n"
 	"uniform float uTime;\n"
+	"uniform float uAspect;\n"
 	"vec4 px(vec2 uv)\n"
 	"{\n"
 	"	if (uTaps <= 1)\n"
@@ -472,7 +473,7 @@ static const char g_postFinalSrc[] =
 	"	}\n"
 	"	if (uVignette > 0.0)\n"
 	"	{\n"
-	"		vec2 d = (vUV - 0.5) * vec2(1.333, 1.0);\n"
+	"		vec2 d = (vUV - 0.5) * vec2(uAspect, 1.0);\n"
 	"		c *= mix(1.0, 1.0 - uVignette * smoothstep(0.25, 1.1, dot(d, d) * 2.2), mask);\n"
 	"	}\n"
 	"	if (uGrain > 0.0)\n"
@@ -827,7 +828,7 @@ static void postEffects()
 {
 	const float white = 4.0f;
 	const float whiteS = 1.0f - 1.0f / white;
-	const float projX = 320.0f / gfx.focalLength, projY = 240.0f / gfx.focalLength;
+	const float projX = g_virtualWidth * 0.5f / gfx.focalLength, projY = 240.0f / gfx.focalLength;
 	BOOL ao = gfx.aoStrength > 0.0f && g_post.aoLin.tex;
 	BOOL bloom = gfx.bloomStrength > 0.0f && g_post.bloomLevels > 0;
 	int32_t i;
@@ -1052,6 +1053,7 @@ static void postPresent(int32_t vx, int32_t vy, int32_t vw, int32_t vh, int32_t 
 	postUniform1f(g_post.finalProg, "uGrain", g_post.active && useMask ? gfx.filmGrain : 0.0f);
 	postUniform1f(g_post.finalProg, "uGamma", gamma > 0.0f ? gamma : 1.0f);
 	postUniform1f(g_post.finalProg, "uTime", (float)(g_post.frame % 1024));
+	postUniform1f(g_post.finalProg, "uAspect", g_virtualWidth / 480.0f);
 	postBindTexture(1, 0);
 	postBindTexture(0, source);
 	if (taps == 1 && (!framebufferLinearFiltering || scale > 0.99f))

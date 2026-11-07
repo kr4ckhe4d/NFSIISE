@@ -78,6 +78,9 @@
 #	Film grain strength, 0 - off (default)
 #FocalLength:
 #	Game projection focal length at 640x480, used to reconstruct geometry for SSAO (default: 320)
+#Widescreen:
+#	1 - Hor+ widescreen on windows wider than 4:3: wider field of view, HUD and menus stay 4:3 in the middle (default)
+#	0 - Original 4:3 picture (see "KeepAspectRatio")
 #JoystickApplyDeadzone:
 #	Apply game default deadzone for joysticks
 #JoystickDisableAxesInMenu:
@@ -159,6 +162,7 @@ Sharpen=0.35
 Vignette=0.2
 FilmGrain=0.0
 FocalLength=320
+Widescreen=1
 LinuxCOM1=/dev/ttyS0
 LinuxCOM2=/dev/ttyS1
 LinuxCOM3=/dev/ttyUSB0

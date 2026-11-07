@@ -341,6 +341,17 @@ static uint32_t g_framebufferDepth;
 static int32_t  g_framebufferHeight;
 static int32_t  g_framebufferBaseEdge;
 
+/*
+ * Widescreen (Hor+): the patched game squeezes full-width 3D views horizontally by "widescreenScale",
+ * so a wider field of view fits into its 640x480 screen space. The wrapper stretches those views over
+ * a virtual screen of g_virtualWidth x 480 units, while 2D elements (HUD, menus) and sub-views
+ * (rear-view mirror) keep 4:3 proportions in the middle of the screen.
+ */
+extern float widescreenScale;
+static float g_virtualWidth = 640.0f;
+static BOOL  g_fullWidthView = true;
+static BOOL  g_prevFrameHas3D;
+
 /* GLSL config */
 static float g_textureEnabled;
 static float g_fogEnabled;
@@ -537,8 +548,20 @@ static void destroyFrameBuffer()
 static void createFrameBuffer()
 {
 	int32_t shorterEdge = fixedFramebufferSize ? SDL_min(initialWinWidth, initialWinHeight) : SDL_min(winWidth, winHeight);
-	if (g_framebufferBaseEdge == shorterEdge)
+	float virtualWidth = 640.0f;
+#ifdef GL2_ENHANCED
+	{
+		const int32_t aw = fixedFramebufferSize ? initialWinWidth : winWidth;
+		const int32_t ah = fixedFramebufferSize ? initialWinHeight : winHeight;
+		const float aspect = ah > 0 ? (float)aw / (float)ah : 4.0f / 3.0f;
+		if (gfx.widescreen && aspect > 4.0f / 3.0f + 0.01f)
+			virtualWidth = 480.0f * SDL_min(aspect, 4.0f);
+	}
+#endif
+	widescreenScale = 640.0f / virtualWidth;
+	if (g_framebufferBaseEdge == shorterEdge && g_virtualWidth == virtualWidth)
 		return;
+	g_virtualWidth = virtualWidth;
 
 #ifdef GL2_ENHANCED
 	{
@@ -555,9 +578,9 @@ static void createFrameBuffer()
 		h = (int32_t)(shorterEdge * gfx.renderScale + 0.5f);
 		if (h < 120)
 			h = 120;
-		if (h * 4 / 3 > maxSize)
-			h = maxSize * 3 / 4;
-		w = h * 4 / 3;
+		if (h * g_virtualWidth / 480.0f > maxSize)
+			h = maxSize * 480.0f / g_virtualWidth;
+		w = (int32_t)(h * g_virtualWidth / 480.0f + 0.5f);
 
 		destroyFrameBuffer();
 		g_framebuffer = postCreateTargets(w, h);
@@ -937,6 +960,8 @@ static struct
 	float oowMin, oowMax;
 	uint32_t depthMask, textured, additive;
 } g_stats[2][2];
+static float g_statsSkyMinX = 1e9f, g_statsSkyMaxX = -1e9f;
+static uint32_t g_statsSkyCount;
 static void statsTriangle(const GrVertex *a, const GrVertex *b, const GrVertex *c)
 {
 	const BOOL fog = g_fogEnabled > 0.5f;
@@ -953,6 +978,14 @@ static void statsTriangle(const GrVertex *a, const GrVertex *b, const GrVertex *
 	g_stats[fog][flat].depthMask += !!g_depthMask;
 	g_stats[fog][flat].textured += g_textureEnabled > 0.5f;
 	g_stats[fog][flat].additive += g_blendFuncDFactor == GL_ONE;
+	if (flat && !g_seen3D && g_prevFrameHas3D)
+	{
+		/* Sky backdrop: X extent in game coordinates */
+		const float ax = a->x - VertexSnap, bx = b->x - VertexSnap, cx = c->x - VertexSnap;
+		g_statsSkyMinX = SDL_min(g_statsSkyMinX, SDL_min(ax, SDL_min(bx, cx)));
+		g_statsSkyMaxX = SDL_max(g_statsSkyMaxX, SDL_max(ax, SDL_max(bx, cx)));
+		g_statsSkyCount++;
+	}
 }
 static void statsFrame()
 {
@@ -968,6 +1001,11 @@ static void statsFrame()
 				fprintf(stderr, "stats fog=%u flat=%u: %u tris/120f oow=[%g, %g] depthWrite=%u textured=%u additive=%u\n",
 					fog, flat, g_stats[fog][flat].count, g_stats[fog][flat].oowMin, g_stats[fog][flat].oowMax,
 					g_stats[fog][flat].depthMask, g_stats[fog][flat].textured, g_stats[fog][flat].additive);
+	if (g_statsSkyCount)
+		fprintf(stderr, "stats sky: %u tris/120f x=[%g, %g] widescreenScale=%g virtualWidth=%g\n", g_statsSkyCount, g_statsSkyMinX, g_statsSkyMaxX, widescreenScale, g_virtualWidth);
+	g_statsSkyMinX = 1e9f;
+	g_statsSkyMaxX = -1e9f;
+	g_statsSkyCount = 0;
 	memset(g_stats, 0, sizeof g_stats);
 }
 
@@ -1010,9 +1048,19 @@ REALIGN STDCALL void grClipWindow(uint32_t minX, uint32_t minY, uint32_t maxX, u
 {
 	float ratio = g_framebufferHeight / 480.0f;
 
-	int32_t scaledMinX = minX * ratio;
+	/* Full-width views are stretched over the whole virtual width, other windows stay 4:3 in the middle */
+	float offsetX = (g_virtualWidth - 640.0f) * 0.5f;
+	float virtualMinX = minX + offsetX, virtualMaxX = maxX + offsetX;
+	g_fullWidthView = (minX == 0 && maxX >= 640);
+	if (g_fullWidthView)
+	{
+		virtualMinX = 0.0f;
+		virtualMaxX = g_virtualWidth;
+	}
+
+	int32_t scaledMinX = virtualMinX * ratio;
 	int32_t scaledMinY = minY * ratio;
-	int32_t scaledMaxX = maxX * ratio + 0.5f;
+	int32_t scaledMaxX = virtualMaxX * ratio + 0.5f;
 	int32_t scaledMaxY = maxY * ratio + 0.5f;
 
 // 	fprintf(stderr, "grClipWindow: %d %d %d %d [%d]\n", minX, minY, maxX, maxY, g_trianglesCount);
@@ -1092,7 +1140,7 @@ REALIGN STDCALL void grBufferSwap(int swap_interval)
 
 	int32_t xOffset = 0, yOffset = 0;
 	int32_t visibleWidth = 0, visibleHeight = 0;
-	float widthRatio  = winWidth  / 640.0f;
+	float widthRatio  = winWidth  / g_virtualWidth;
 	float heightRatio = winHeight / 480.0f;
 
 	if (keepAspectRatio)
@@ -1102,18 +1150,19 @@ REALIGN STDCALL void grBufferSwap(int swap_interval)
 		else if (heightRatio > widthRatio)
 			heightRatio = widthRatio;
 
-		xOffset = winWidth  / 2 - widthRatio  * 320;
+		xOffset = winWidth  / 2 - widthRatio  * g_virtualWidth * 0.5f;
 		yOffset = winHeight / 2 - heightRatio * 240;
 
-		visibleWidth  = 640 * widthRatio  + 0.5f;
+		visibleWidth  = g_virtualWidth * widthRatio  + 0.5f;
 		visibleHeight = 480 * heightRatio + 0.5f;
 	}
 
-	int32_t scaledMaxX = 640.0f * widthRatio  + 0.5f;
+	int32_t scaledMaxX = g_virtualWidth * widthRatio  + 0.5f;
 	int32_t scaledMaxY = 480.0f * heightRatio + 0.5f;
 
 #ifdef GL2_ENHANCED
 	postPresent(xOffset, winHeight - scaledMaxY - yOffset, scaledMaxX, scaledMaxY, xOffset, yOffset, visibleWidth, visibleHeight, g_gammaValue, g_frameHas3D);
+	g_prevFrameHas3D = g_frameHas3D;
 	g_frameHas3D = false;
 	g_seen3D = false;
 	glActiveTexture(GL_TEXTURE0);
@@ -1193,12 +1242,42 @@ REALIGN STDCALL void grDitherMode(GrDitherMode_t mode)
  * before any 3D geometry of a view (since frame start or buffer clear) is the sky backdrop (world),
  * after it - HUD and other overlays.
  */
-static inline uint8_t worldMask(const GrVertex *a, const GrVertex *b, const GrVertex *c)
+enum
+{
+	MapOverlay,  /* 4:3 in the middle of the screen */
+	MapWorld,    /* Stretched over the whole virtual width (the game squeezed it) */
+	MapBackdrop, /* Sky backdrop: stretched, and widened to cover the screen edges */
+};
+
+static inline uint8_t worldMask(const GrVertex *a, const GrVertex *b, const GrVertex *c, int32_t *mapping)
 {
 	if (a->oow >= 0.999f && b->oow >= 0.999f && c->oow >= 0.999f)
+	{
+		/* Sky backdrop of a race frame is stretched with the 3D view, overlays and menus are not */
+		*mapping = (!g_seen3D && g_prevFrameHas3D && g_fullWidthView) ? MapBackdrop : MapOverlay;
 		return g_seen3D ? 0 : 255;
+	}
 	g_seen3D = g_frameHas3D = true;
+	*mapping = g_fullWidthView ? MapWorld : MapOverlay;
 	return 255;
+}
+
+/* Maps game X (640 units) to the virtual screen */
+static inline float mapX(float x, int32_t mapping)
+{
+	const float center = g_virtualWidth * 0.5f;
+	switch (mapping)
+	{
+		case MapWorld:
+			return x * (g_virtualWidth / 640.0f);
+		case MapBackdrop:
+			/*
+			 * The game projects the sky as a flat strip spanning +-1.5 focal lengths (+-480 units at 4:3),
+			 * which doesn't reach the edges of wider screens - widen it just enough.
+			 */
+			return center + (x * (g_virtualWidth / 640.0f) - center) * SDL_max(1.0f, center / 470.0f);
+	}
+	return x + (g_virtualWidth - 640.0f) * 0.5f;
 }
 
 REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const GrVertex *c)
@@ -1215,7 +1294,8 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 	 * The game's look depends on it, so such triangles keep per-vertex fog instead of the per-pixel table lookup.
 	 */
 	const BOOL beyondFogTable = a->oow < 1.0f / 65535.0f || b->oow < 1.0f / 65535.0f || c->oow < 1.0f / 65535.0f;
-	const uint8_t world = worldMask(a, b, c);
+	int32_t mapping;
+	const uint8_t world = worldMask(a, b, c, &mapping);
 	const uint8_t mask = (world && beyondFogTable) ? world - 1 : world;
 	uint32_t i;
 	for (i = 0; i < 3; ++i)
@@ -1234,7 +1314,7 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 		g_textureCoord[g_trianglesCount].vertex[i].t = grVertex->tmuvtx[0].tow / 256.0f;
 		g_textureCoord[g_trianglesCount].vertex[i].q = grVertex->oow;
 
-		g_vertices[g_trianglesCount].vertex[i].x = grVertex->x - VertexSnap;
+		g_vertices[g_trianglesCount].vertex[i].x = mapX(grVertex->x - VertexSnap, mapping);
 		g_vertices[g_trianglesCount].vertex[i].y = grVertex->y - VertexSnap;
 		g_vertices[g_trianglesCount].vertex[i].z = grVertex->oow;
 	}
@@ -1250,6 +1330,8 @@ REALIGN STDCALL void grDrawLine(const GrVertex *a, const GrVertex *b)
 	drawTriangles();
 
 	const GrVertex *grVertices[2] = {a, b};
+	const BOOL flat = a->oow >= 0.999f && b->oow >= 0.999f;
+	const int32_t mapping = (g_fullWidthView && !(flat && g_seen3D)) ? MapWorld : MapOverlay;
 	uint32_t i;
 	for (i = 0; i < 2; ++i)
 	{
@@ -1260,7 +1342,7 @@ REALIGN STDCALL void grDrawLine(const GrVertex *a, const GrVertex *b)
 
 		g_maskValues->vertex[i] = (grVertices[i]->oow >= 0.999f && g_seen3D) ? 0 : 255;
 
-		g_vertices->vertex[i].x = grVertices[i]->x - VertexSnap;
+		g_vertices->vertex[i].x = mapX(grVertices[i]->x - VertexSnap, mapping);
 		g_vertices->vertex[i].y = grVertices[i]->y - VertexSnap;
 		g_vertices->vertex[i].z = grVertices[i]->oow;
 	}
