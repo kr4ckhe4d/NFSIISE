@@ -76,6 +76,15 @@
 #	Vignette strength, 0 - off (default: 0.2)
 #FilmGrain:
 #	Film grain strength, 0 - off (default)
+#Reflections:
+#	Screen-space reflections on roads and other flat grey ground, 0 - off (default: 1.0)
+#Wetness:
+#	Road wetness for reflections: 0.0 (dry, faint sheen) to 1.0 (soaked, mirror-like)
+#	auto - wet while it rains, dry otherwise (default)
+#SunShafts:
+#	Light shafts when a bright sun is visible in the sky, 0 - off (default: 0.6)
+#Haze:
+#	Distance haze tinted by the sky color, 0 - off (default: 0.25)
 #FocalLength:
 #	Game projection focal length at 640x480, used to reconstruct geometry for SSAO (default: 320)
 #Widescreen:
@@ -161,6 +170,10 @@ FXAA=1
 Sharpen=0.35
 Vignette=0.2
 FilmGrain=0.0
+Reflections=1.0
+Wetness=auto
+SunShafts=0.6
+Haze=0.25
 FocalLength=320
 Widescreen=1
 LinuxCOM1=/dev/ttyS0

@@ -62,6 +62,7 @@ static struct
 
 	/* Programs */
 	GLuint aoPrepProg, aoProg, blurProg, prefilterProg, downProg, upProg, compositeProg, fxaaProg, finalProg;
+	GLuint skyProg, ssrProg, reflBlurProg, shaftsProg;
 
 	/* Scene */
 	int32_t w, h, samples;
@@ -70,6 +71,7 @@ static struct
 
 	/* Effects */
 	PostTarget aoLin, aoA, aoB;
+	PostTarget sky, reflA, reflB, shafts;
 	PostTarget bloom[BloomLevels];
 	int32_t bloomLevels;
 	PostTarget postA, postB;
@@ -206,6 +208,260 @@ static const char g_postBlurSrc[] =
 	"}\n"
 ;
 
+/*
+ * Sky probe (3x1): x=0 - average sky color (HDR), x=1 - sun position (uv, coverage, spread), x=2 - sun color.
+ * The "sun" is the centroid of very bright sky pixels; a large spread means an evenly bright (overcast) sky.
+ */
+static const char g_postSkySrc[] =
+	POST_COMMON
+	"uniform sampler2D uColor;\n"
+	"uniform sampler2D uDepth;\n"
+	"uniform sampler2D uMask;\n"
+	"uniform float uWhite;\n"
+	"void main()\n"
+	"{\n"
+	"	vec3 skySum = vec3(0.0), allSum = vec3(0.0), sunSum = vec3(0.0);\n"
+	"	vec2 sunUV = vec2(0.0), sunUV2 = vec2(0.0);\n"
+	"	float skyN = 0.0, allN = 0.0, sunW = 0.0;\n"
+	"	for (int y = 0; y < 24; ++y)\n"
+	"	{\n"
+	"		for (int x = 0; x < 48; ++x)\n"
+	"		{\n"
+	"			vec2 uv = (vec2(float(x), float(y)) + 0.5) / vec2(48.0, 24.0);\n"
+	"			if (texture2D(uMask, uv).r < 0.5)\n"
+	"				continue;\n"
+	"			vec3 c = expandHDR(toLinear(texture2D(uColor, uv).rgb), uWhite);\n"
+	"			allSum += c;\n"
+	"			allN += 1.0;\n"
+	"			if (texture2D(uDepth, uv).r >= 0.999999)\n"
+	"			{\n"
+	"				float b = max(luma(c) - 2.0, 0.0);\n"
+	"				skySum += c;\n"
+	"				skyN += 1.0;\n"
+	"				sunSum += c * b;\n"
+	"				sunUV += uv * b;\n"
+	"				sunUV2 += uv * uv * b;\n"
+	"				sunW += b;\n"
+	"			}\n"
+	"		}\n"
+	"	}\n"
+	"	float px = floor(gl_FragCoord.x);\n"
+	"	if (px < 0.5)\n"
+	"	{\n"
+	"		gl_FragColor = vec4(skyN > 16.0 ? skySum / skyN : allSum / max(allN, 1.0), 1.0);\n"
+	"	}\n"
+	"	else if (px < 1.5)\n"
+	"	{\n"
+	"		vec2 m = sunUV / max(sunW, 1e-4);\n"
+	"		vec2 v = max(sunUV2 / max(sunW, 1e-4) - m * m, vec2(0.0));\n"
+	"		gl_FragColor = vec4(m, sunW / 1152.0, sqrt(v.x + v.y));\n"
+	"	}\n"
+	"	else\n"
+	"	{\n"
+	"		gl_FragColor = vec4(sunSum / max(sunW, 1e-4), 1.0);\n"
+	"	}\n"
+	"}\n"
+;
+
+/*
+ * Screen-space reflections on upward facing, asphalt-like (unsaturated) surfaces, half resolution.
+ * Output: rgb - reflected radiance (HDR), a - specular weight (Fresnel * ground * strength).
+ * Rays that leave the screen fall back to the sky in the reflected direction or the average sky color.
+ */
+static const char g_postSSRSrc[] =
+	POST_COMMON
+	"uniform sampler2D uLin;\n"
+	"uniform sampler2D uColor;\n"
+	"uniform sampler2D uSky;\n"
+	"uniform vec2 uProj;\n"
+	"uniform vec2 uTexel;\n"
+	"uniform float uWhite;\n"
+	"uniform float uStrength;\n"
+	"uniform float uWetness;\n"
+	"vec3 viewPos(vec2 uv, float w) { return vec3((uv * 2.0 - 1.0) * uProj * w, w); }\n"
+	"vec3 viewPosAt(vec2 uv) { return viewPos(uv, abs(texture2D(uLin, uv).r)); }\n"
+	"vec2 project(vec3 p) { return p.xy / (p.z * uProj) * 0.5 + 0.5; }\n"
+	"vec3 sceneHDR(vec2 uv) { return expandHDR(toLinear(texture2D(uColor, uv).rgb), uWhite); }\n"
+	"void main()\n"
+	"{\n"
+	"	float w0 = texture2D(uLin, vUV).r;\n"
+	"	if (w0 <= 0.0 || w0 >= 1e6)\n"
+	"	{\n"
+	"		gl_FragColor = vec4(0.0);\n"
+	"		return;\n"
+	"	}\n"
+	"	vec3 P = viewPos(vUV, w0);\n"
+	"	vec3 pr = viewPosAt(vUV + vec2(uTexel.x, 0.0));\n"
+	"	vec3 pl = viewPosAt(vUV - vec2(uTexel.x, 0.0));\n"
+	"	vec3 pu = viewPosAt(vUV + vec2(0.0, uTexel.y));\n"
+	"	vec3 pd = viewPosAt(vUV - vec2(0.0, uTexel.y));\n"
+	"	vec3 dx = (abs(pr.z - P.z) < abs(P.z - pl.z)) ? (pr - P) : (P - pl);\n"
+	"	vec3 dy = (abs(pu.z - P.z) < abs(P.z - pd.z)) ? (pu - P) : (P - pd);\n"
+	"	vec3 N = normalize(cross(dx, dy));\n"
+	"	if (dot(N, P) > 0.0)\n"
+	"		N = -N;\n"
+	/* Ground: facing up, and grey like asphalt or concrete (grass, dirt and painted walls stay matte) */
+	"	vec3 c0 = toLinear(texture2D(uColor, vUV).rgb);\n"
+	"	float cMax = max(c0.r, max(c0.g, c0.b)), cMin = min(c0.r, min(c0.g, c0.b));\n"
+	"	float sat = (cMax - cMin) / (cMax + 0.05);\n"
+	"	float ground = smoothstep(0.8, 0.95, N.y) * (1.0 - smoothstep(0.15, 0.4, sat));\n"
+	"	if (ground <= 0.002)\n"
+	"	{\n"
+	"		gl_FragColor = vec4(0.0);\n"
+	"		return;\n"
+	"	}\n"
+	"	vec3 V = normalize(P);\n"
+	"	vec3 R = reflect(V, N);\n"
+	"	float NoV = clamp(dot(N, -V), 0.0, 1.0);\n"
+	/*
+	 * Schlick Fresnel with a roughness-limited grazing peak: rough dry asphalt only gets a faint sheen.
+	 * The base reflectance of dry asphalt is already part of the game's textures, only a water film adds it.
+	 */
+	"	float rough = mix(0.88, 0.05, uWetness);\n"
+	"	float F0 = 0.04 * smoothstep(0.0, 0.5, uWetness);\n"
+	"	float F = F0 + (max(1.0 - rough, F0) - F0) * pow(1.0 - NoV, 5.0);\n"
+	"	float spec = clamp(F * ground * uStrength, 0.0, 0.95);\n"
+	/* Environment: the sky in the reflected direction, searched upwards past objects on the horizon */
+	"	vec3 skyAvg = texture2D(uSky, vec2(0.5 / 3.0, 0.5)).rgb;\n"
+	"	vec3 env = skyAvg;\n"
+	"	if (R.z > 0.01)\n"
+	"	{\n"
+	"		vec2 uvInf = project(R);\n"
+	"		vec3 sum = vec3(0.0);\n"
+	"		float n = 0.0;\n"
+	"		for (int k = 0; k < 6; ++k)\n"
+	"		{\n"
+	"			vec2 uv = vec2(uvInf.x, uvInf.y + float(k) * 0.03);\n"
+	"			if (all(greaterThan(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0))) && texture2D(uLin, uv).r >= 1e6)\n"
+	"			{\n"
+	"				sum += sceneHDR(uv);\n"
+	"				n += 1.0;\n"
+	"			}\n"
+	"		}\n"
+	"		if (n > 0.0)\n"
+	"			env = mix(skyAvg, sum / n, min(n / 3.0, 1.0));\n"
+	"	}\n"
+	"	vec3 result = env;\n"
+	"	if (R.z > 0.02)\n"
+	"	{\n"
+	/* March in screen space between the projected ray ends, depth interpolated as 1/z */
+	"		vec3 P1 = P + R * (P.z * 40.0 + 100.0);\n"
+	"		vec2 uv0 = vUV, uv1 = project(P1);\n"
+	"		vec2 d = uv1 - uv0;\n"
+	"		float sMax = 1.0;\n"
+	"		if (d.x > 0.0) sMax = min(sMax, (1.0 - uv0.x) / d.x); else if (d.x < 0.0) sMax = min(sMax, -uv0.x / d.x);\n"
+	"		if (d.y > 0.0) sMax = min(sMax, (1.0 - uv0.y) / d.y); else if (d.y < 0.0) sMax = min(sMax, -uv0.y / d.y);\n"
+	"		float iz0 = 1.0 / P.z, iz1 = 1.0 / P1.z;\n"
+	"		const int steps = 40;\n"
+	/* Ordered 4x4 jitter: averages out in the reflection blur (noise would leave per-row stripes) */
+	"		vec2 q = mod(floor(gl_FragCoord.xy), 4.0);\n"
+	"		float jitter = (mod(q.x + 2.0 * q.y, 4.0) * 4.0 + mod(q.y + 2.0 * floor(q.x / 2.0), 4.0) + 0.5) / 16.0;\n"
+	/* Start a few texels away from the surface: point sampled depth would make the ray hit its own surface */
+	"		float sMin = min(3.0 * length(uTexel) / max(length(d), 1e-6), sMax);\n"
+	"		float sPrev = sMin, sHit = -1.0;\n"
+	"		for (int i = 1; i <= steps; ++i)\n"
+	"		{\n"
+	"			float t = (float(i) - jitter) / float(steps);\n"
+	/* Quadratic distribution: more samples close to the reflecting point */
+	"			float s = sMin + (sMax - sMin) * t * t;\n"
+	"			vec2 uv = uv0 + d * s;\n"
+	"			float rayZ = 1.0 / mix(iz0, iz1, s);\n"
+	"			float sz = texture2D(uLin, uv).r;\n"
+	"			float prevZ = 1.0 / mix(iz0, iz1, sPrev);\n"
+	"			if (sz > 0.0 && rayZ > sz && rayZ - sz < abs(rayZ - prevZ) + 0.02 * rayZ + 0.25)\n"
+	"			{\n"
+	"				sHit = s;\n"
+	"				break;\n"
+	"			}\n"
+	"			sPrev = s;\n"
+	"		}\n"
+	"		if (sHit > 0.0)\n"
+	"		{\n"
+	"			float a = sPrev, b = sHit;\n"
+	"			for (int i = 0; i < 5; ++i)\n"
+	"			{\n"
+	"				float m = 0.5 * (a + b);\n"
+	"				float sz = abs(texture2D(uLin, uv0 + d * m).r);\n"
+	"				if (1.0 / mix(iz0, iz1, m) > sz) b = m; else a = m;\n"
+	"			}\n"
+	"			vec2 uvHit = uv0 + d * b;\n"
+	"			vec2 e = smoothstep(vec2(0.0), vec2(0.06), uvHit) * smoothstep(vec2(1.0), vec2(0.94), uvHit);\n"
+	"			result = mix(env, sceneHDR(uvHit), e.x * e.y);\n"
+	"		}\n"
+	"	}\n"
+	/* Dry roads only show a soft sheen of the sky, wet roads a clear mirror image */
+	"	result = mix(mix(env, result, 0.25), result, smoothstep(0.2, 0.7, uWetness));\n"
+	/* A rough surface spreads out highlights: soft limit of the reflected radiance when dry */
+	"	float limit = mix(0.8, 8.0, uWetness * uWetness);\n"
+	"	result = result / (1.0 + result / limit);\n"
+	"	gl_FragColor = vec4(result, spec);\n"
+	"}\n"
+;
+
+/* Reflection blur (glossiness): depth-aware, weighted by the specular weight, stretched vertically like on wet roads */
+static const char g_postReflBlurSrc[] =
+	POST_COMMON
+	"uniform sampler2D uTex;\n"
+	"uniform sampler2D uLin;\n"
+	"uniform vec2 uStep;\n"
+	"void main()\n"
+	"{\n"
+	"	float w0 = abs(texture2D(uLin, vUV).r);\n"
+	"	vec4 c0 = texture2D(uTex, vUV);\n"
+	"	vec3 sum = c0.rgb * c0.a;\n"
+	"	float wsum = 1.0, csum = c0.a;\n"
+	"	for (int i = -5; i <= 5; ++i)\n"
+	"	{\n"
+	"		if (i == 0)\n"
+	"			continue;\n"
+	"		vec2 uv = vUV + uStep * float(i);\n"
+	"		vec4 c = texture2D(uTex, uv);\n"
+	"		float w = abs(texture2D(uLin, uv).r);\n"
+	"		float weight = exp(-float(i * i) / 12.0) * max(0.0, 1.0 - abs(w - w0) / (w0 * 0.3));\n"
+	"		sum += c.rgb * c.a * weight;\n"
+	"		csum += c.a * weight;\n"
+	"		wsum += weight;\n"
+	"	}\n"
+	"	gl_FragColor = vec4(sum / max(csum, 1e-4), c0.a > 0.0 ? csum / wsum : 0.0);\n"
+	"}\n"
+;
+
+/* Sun shafts: radial blur of the bright sky towards the sun position from the sky probe, half resolution */
+static const char g_postShaftsSrc[] =
+	POST_COMMON
+	"uniform sampler2D uColor;\n"
+	"uniform sampler2D uDepth;\n"
+	"uniform sampler2D uMask;\n"
+	"uniform sampler2D uSky;\n"
+	"uniform float uWhite;\n"
+	"uniform vec2 uAspect;\n"
+	"void main()\n"
+	"{\n"
+	"	vec4 sun = texture2D(uSky, vec2(1.5 / 3.0, 0.5));\n"
+	"	float strength = smoothstep(0.0005, 0.01, sun.z) * (1.0 - smoothstep(0.05, 0.1, sun.w));\n"
+	"	if (strength <= 0.0)\n"
+	"	{\n"
+	"		gl_FragColor = vec4(0.0);\n"
+	"		return;\n"
+	"	}\n"
+	"	const int samples = 48;\n"
+	"	vec2 delta = (sun.xy - vUV) * (0.95 / float(samples));\n"
+	"	vec2 uv = vUV + delta * ign(gl_FragCoord.xy);\n"
+	"	float illum = 0.0, decay = 1.0;\n"
+	"	for (int i = 0; i < samples; ++i)\n"
+	"	{\n"
+	"		if (texture2D(uDepth, uv).r >= 0.999999 && texture2D(uMask, uv).r > 0.5)\n"
+	"			illum += max(luma(expandHDR(toLinear(texture2D(uColor, uv).rgb), uWhite)) - 1.5, 0.0) * decay;\n"
+	"		decay *= 0.97;\n"
+	"		uv += delta;\n"
+	"	}\n"
+	"	vec3 sunColor = texture2D(uSky, vec2(2.5 / 3.0, 0.5)).rgb;\n"
+	"	sunColor /= max(luma(sunColor), 1e-3);\n"
+	"	float dist = length((sun.xy - vUV) * uAspect);\n"
+	"	gl_FragColor = vec4(sunColor * illum / float(samples) * strength * (1.0 - 0.6 * smoothstep(0.0, 1.5, dist)), 1.0);\n"
+	"}\n"
+;
+
 /* Bloom: bright-pass with soft knee and Karis average, from scene (full res) to first bloom level */
 static const char g_postPrefilterSrc[] =
 	POST_COMMON
@@ -281,6 +537,12 @@ static const char g_postCompositeSrc[] =
 	"uniform sampler2D uAO;\n"
 	"uniform sampler2D uBloom;\n"
 	"uniform sampler2D uAOLin;\n"
+	"uniform sampler2D uRefl;\n"
+	"uniform sampler2D uShafts;\n"
+	"uniform sampler2D uSky;\n"
+	"uniform float uReflections;\n"
+	"uniform float uShaftStrength;\n"
+	"uniform float uHaze;\n"
 	"uniform vec2 uAOTexel;\n"
 	"uniform vec2 uAOSize;\n"
 	"uniform float uAOStrength;\n"
@@ -326,9 +588,20 @@ static const char g_postCompositeSrc[] =
 	"	if (uDebug == 2) { gl_FragColor = vec4(vec3(ao), 1.0); return; }\n"
 	"	if (uDebug == 3) { gl_FragColor = vec4(vec3(depth >= 0.999999 ? 1.0 : clamp(log2(linearDepth(depth)) / 16.0, 0.0, 1.0)), 1.0); return; }\n"
 	"	if (uDebug == 4) { gl_FragColor = vec4(toGamma(compressHDR(bloom, 0.5)), 1.0); return; }\n"
+	"	vec4 refl = uReflections > 0.0 ? texture2D(uRefl, vUV) : vec4(0.0);\n"
+	"	vec3 shafts = uShaftStrength > 0.0 ? texture2D(uShafts, vUV).rgb * uShaftStrength : vec3(0.0);\n"
+	"	if (uDebug == 5) { gl_FragColor = vec4(toGamma(compressHDR(refl.rgb * refl.a, 0.5)), 1.0); return; }\n"
+	"	if (uDebug == 6) { gl_FragColor = vec4(toGamma(compressHDR(shafts, 0.5)), 1.0); return; }\n"
 	"	vec3 hdr = expandHDR(toLinear(src), uWhite);\n"
 	"	hdr *= mix(1.0, ao, mask);\n"
-	"	hdr += bloom * mask;\n"
+	/* Aerial perspective: distant geometry fades towards the sky color */
+	"	if (uHaze > 0.0 && depth < 0.999999)\n"
+	"	{\n"
+	"		vec3 skyColor = texture2D(uSky, vec2(0.5 / 3.0, 0.5)).rgb;\n"
+	"		hdr = mix(hdr, skyColor, uHaze * (1.0 - exp(-linearDepth(depth) * 0.003)) * mask);\n"
+	"	}\n"
+	"	hdr = mix(hdr, refl.rgb, refl.a * mask);\n"
+	"	hdr += (bloom + shafts) * mask;\n"
 	"	if (uToneMapping > 0.5)\n"
 	"	{\n"
 	"		hdr *= uExposure;\n"
@@ -624,6 +897,10 @@ static void postDestroyTargets()
 	postDestroyTarget(&g_post.aoLin);
 	postDestroyTarget(&g_post.aoA);
 	postDestroyTarget(&g_post.aoB);
+	postDestroyTarget(&g_post.sky);
+	postDestroyTarget(&g_post.reflA);
+	postDestroyTarget(&g_post.reflB);
+	postDestroyTarget(&g_post.shafts);
 	for (i = 0; i < BloomLevels; ++i)
 		postDestroyTarget(&g_post.bloom[i]);
 	g_post.bloomLevels = 0;
@@ -644,6 +921,11 @@ static void postDestroy()
 	if (g_post.compositeProg) glDeleteProgram(g_post.compositeProg);
 	if (g_post.fxaaProg) glDeleteProgram(g_post.fxaaProg);
 	if (g_post.finalProg) glDeleteProgram(g_post.finalProg);
+	if (g_post.skyProg) glDeleteProgram(g_post.skyProg);
+	if (g_post.ssrProg) glDeleteProgram(g_post.ssrProg);
+	if (g_post.reflBlurProg) glDeleteProgram(g_post.reflBlurProg);
+	if (g_post.shaftsProg) glDeleteProgram(g_post.shaftsProg);
+	g_post.skyProg = g_post.ssrProg = g_post.reflBlurProg = g_post.shaftsProg = 0;
 	g_post.aoPrepProg = g_post.aoProg = g_post.blurProg = g_post.prefilterProg = g_post.downProg = 0;
 	g_post.upProg = g_post.compositeProg = g_post.fxaaProg = g_post.finalProg = 0;
 	g_post.ok = false;
@@ -672,6 +954,11 @@ static BOOL postInit()
 	g_post.upProg = postCompile("bloom upsample", g_postUpSrc);
 	g_post.compositeProg = postCompile("composite", g_postCompositeSrc);
 	g_post.fxaaProg = postCompile("fxaa", g_postFxaaSrc);
+	/* Optional effects */
+	g_post.skyProg = postCompile("sky probe", g_postSkySrc);
+	g_post.ssrProg = postCompile("reflections", g_postSSRSrc);
+	g_post.reflBlurProg = postCompile("reflection blur", g_postReflBlurSrc);
+	g_post.shaftsProg = postCompile("sun shafts", g_postShaftsSrc);
 
 	g_post.ok = g_post.aoPrepProg && g_post.aoProg && g_post.blurProg && g_post.prefilterProg && g_post.downProg &&
 	            g_post.upProg && g_post.compositeProg && g_post.fxaaProg && glDrawBuffers;
@@ -779,6 +1066,27 @@ static GLuint postCreateTargets(int32_t w, int32_t h)
 		}
 		ok &= postCreateTarget(&g_post.aoA, (w + 1) / 2, (h + 1) / 2, false);
 		ok &= postCreateTarget(&g_post.aoB, (w + 1) / 2, (h + 1) / 2, false);
+		if (g_post.hasFloat && g_post.skyProg)
+		{
+			/* Optional HDR targets: sky probe, reflections and sun shafts */
+			if (postCreateTarget(&g_post.sky, 3, 1, true))
+			{
+				glBindTexture(GL_TEXTURE_2D, g_post.sky.tex);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+				if (!postCreateTarget(&g_post.reflA, (w + 1) / 2, (h + 1) / 2, true) || !postCreateTarget(&g_post.reflB, (w + 1) / 2, (h + 1) / 2, true))
+				{
+					postDestroyTarget(&g_post.reflA);
+					postDestroyTarget(&g_post.reflB);
+				}
+				if (!postCreateTarget(&g_post.shafts, (w + 1) / 2, (h + 1) / 2, true))
+					postDestroyTarget(&g_post.shafts);
+			}
+			else
+			{
+				postDestroyTarget(&g_post.sky);
+			}
+		}
 		bw = (w + 1) / 2;
 		bh = (h + 1) / 2;
 		for (i = 0; i < BloomLevels && bw >= 4 && bh >= 4; ++i)
@@ -831,10 +1139,13 @@ static void postEffects()
 	const float projX = g_virtualWidth * 0.5f / gfx.focalLength, projY = 240.0f / gfx.focalLength;
 	BOOL ao = gfx.aoStrength > 0.0f && g_post.aoLin.tex;
 	BOOL bloom = gfx.bloomStrength > 0.0f && g_post.bloomLevels > 0;
+	BOOL sky = g_post.sky.tex && (gfx.reflections > 0.0f || gfx.sunShafts > 0.0f || gfx.haze > 0.0f);
+	BOOL refl = sky && gfx.reflections > 0.0f && g_post.aoLin.tex && g_post.reflA.tex && g_post.ssrProg && g_post.reflBlurProg;
+	BOOL shafts = sky && gfx.sunShafts > 0.0f && g_post.shafts.tex && g_post.shaftsProg;
 	int32_t i;
 
-	/* SSAO */
-	if (ao)
+	/* Linear depth (SSAO and reflections) */
+	if ((ao || refl) && g_post.aoLin.tex)
 	{
 		glUseProgram(g_post.aoPrepProg);
 		postUniform1i(g_post.aoPrepProg, "uDepth", 0);
@@ -842,7 +1153,74 @@ static void postEffects()
 		postBindTexture(0, g_post.sceneDepth);
 		postBindTexture(1, g_post.sceneMask);
 		postDrawQuad(&g_post.aoLin);
+	}
 
+	/* Sky probe: average sky color and the sun */
+	if (sky)
+	{
+		glUseProgram(g_post.skyProg);
+		postUniform1i(g_post.skyProg, "uColor", 0);
+		postUniform1i(g_post.skyProg, "uDepth", 1);
+		postUniform1i(g_post.skyProg, "uMask", 2);
+		postUniform1f(g_post.skyProg, "uWhite", whiteS);
+		postBindTexture(0, g_post.sceneColor);
+		postBindTexture(1, g_post.sceneDepth);
+		postBindTexture(2, g_post.sceneMask);
+		postDrawQuad(&g_post.sky);
+	}
+
+	/* Screen-space reflections, then glossy blur (sharper and more streaky when wet) */
+	if (refl)
+	{
+		/* Automatic: wet while it rains */
+		const float wet = gfx.wetness >= 0.0f ? gfx.wetness : 0.15f + 0.7f * g_rainLevel;
+		glUseProgram(g_post.ssrProg);
+		postUniform1i(g_post.ssrProg, "uLin", 0);
+		postUniform1i(g_post.ssrProg, "uColor", 1);
+		postUniform1i(g_post.ssrProg, "uSky", 2);
+		postUniform2f(g_post.ssrProg, "uProj", projX, projY);
+		postUniform2f(g_post.ssrProg, "uTexel", 1.0f / g_post.aoLin.w, 1.0f / g_post.aoLin.h);
+		postUniform1f(g_post.ssrProg, "uWhite", whiteS);
+		postUniform1f(g_post.ssrProg, "uStrength", gfx.reflections);
+		postUniform1f(g_post.ssrProg, "uWetness", wet);
+		postBindTexture(0, g_post.aoLin.tex);
+		postBindTexture(1, g_post.sceneColor);
+		postBindTexture(2, g_post.sky.tex);
+		postDrawQuad(&g_post.reflA);
+
+		glUseProgram(g_post.reflBlurProg);
+		postUniform1i(g_post.reflBlurProg, "uTex", 0);
+		postUniform1i(g_post.reflBlurProg, "uLin", 1);
+		postBindTexture(1, g_post.aoLin.tex);
+		postBindTexture(0, g_post.reflA.tex);
+		postUniform2f(g_post.reflBlurProg, "uStep", (2.5f - 2.0f * wet) / g_post.reflA.w, 0.0f);
+		postDrawQuad(&g_post.reflB);
+		postBindTexture(0, g_post.reflB.tex);
+		postUniform2f(g_post.reflBlurProg, "uStep", 0.0f, (2.5f - 1.0f * wet) / g_post.reflA.h);
+		postDrawQuad(&g_post.reflA);
+	}
+
+	/* Sun shafts */
+	if (shafts)
+	{
+		glUseProgram(g_post.shaftsProg);
+		postUniform1i(g_post.shaftsProg, "uColor", 0);
+		postUniform1i(g_post.shaftsProg, "uDepth", 1);
+		postUniform1i(g_post.shaftsProg, "uMask", 2);
+		postUniform1i(g_post.shaftsProg, "uSky", 3);
+		postUniform1f(g_post.shaftsProg, "uWhite", whiteS);
+		postUniform2f(g_post.shaftsProg, "uAspect", g_virtualWidth / 480.0f, 1.0f);
+		postBindTexture(0, g_post.sceneColor);
+		postBindTexture(1, g_post.sceneDepth);
+		postBindTexture(2, g_post.sceneMask);
+		postBindTexture(3, g_post.sky.tex);
+		postDrawQuad(&g_post.shafts);
+		postBindTexture(3, 0);
+	}
+
+	/* SSAO */
+	if (ao)
+	{
 		glUseProgram(g_post.aoProg);
 		postUniform1i(g_post.aoProg, "uLin", 0);
 		postUniform2f(g_post.aoProg, "uProj", projX, projY);
@@ -908,6 +1286,12 @@ static void postEffects()
 	postUniform1i(g_post.compositeProg, "uAO", 3);
 	postUniform1i(g_post.compositeProg, "uBloom", 4);
 	postUniform1i(g_post.compositeProg, "uAOLin", 5);
+	postUniform1i(g_post.compositeProg, "uRefl", 6);
+	postUniform1i(g_post.compositeProg, "uShafts", 7);
+	postUniform1i(g_post.compositeProg, "uSky", 8);
+	postUniform1f(g_post.compositeProg, "uReflections", refl ? 1.0f : 0.0f);
+	postUniform1f(g_post.compositeProg, "uShaftStrength", shafts ? gfx.sunShafts : 0.0f);
+	postUniform1f(g_post.compositeProg, "uHaze", sky ? gfx.haze : 0.0f);
 	postUniform2f(g_post.compositeProg, "uAOTexel", 1.0f / g_post.aoA.w, 1.0f / g_post.aoA.h);
 	postUniform2f(g_post.compositeProg, "uAOSize", g_post.aoA.w, g_post.aoA.h);
 	postUniform1f(g_post.compositeProg, "uAOStrength", ao ? gfx.aoStrength : 0.0f);
@@ -926,7 +1310,13 @@ static void postEffects()
 	postBindTexture(3, g_post.aoA.tex);
 	postBindTexture(4, bloom ? g_post.bloom[0].tex : 0);
 	postBindTexture(5, ao ? g_post.aoLin.tex : 0);
+	postBindTexture(6, refl ? g_post.reflA.tex : 0);
+	postBindTexture(7, shafts ? g_post.shafts.tex : 0);
+	postBindTexture(8, sky ? g_post.sky.tex : 0);
 	postDrawQuad(&g_post.postA);
+	postBindTexture(8, 0);
+	postBindTexture(7, 0);
+	postBindTexture(6, 0);
 	postBindTexture(5, 0);
 	postBindTexture(4, 0);
 	postBindTexture(3, 0);
@@ -1007,9 +1397,9 @@ static void postPresent(int32_t vx, int32_t vy, int32_t vw, int32_t vh, int32_t 
 	}
 	if (gfxDebugViewRequest >= 0)
 	{
-		static const char *names[] = {"off", "world mask", "ambient occlusion", "depth", "bloom"};
+		static const char *names[] = {"off", "world mask", "ambient occlusion", "depth", "bloom", "reflections", "sun shafts"};
 		gfxDebugViewRequest = -1;
-		g_post.debugView = (g_post.debugView + 1) % 5;
+		g_post.debugView = (g_post.debugView + 1) % 7;
 		fprintf(stderr, "Debug view: %s\n", names[g_post.debugView]);
 	}
 

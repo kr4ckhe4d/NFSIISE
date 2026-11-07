@@ -159,6 +159,9 @@ On windows wider than 4:3 the game renders a wider horizontal field of view (Hor
 * `ToneMapping`, `Exposure`, `Contrast`, `Saturation`, `Warmth` - filmic grading.
 * `Vignette`, `FilmGrain` - camera effects.
 * `PerPixelFog` - the game's fog table is evaluated per pixel instead of per vertex, so distant scenery fades into the haze correctly.
+* `Reflections`, `Wetness` - screen-space reflections on the road. Surfaces that face up and are grey like asphalt or concrete reflect the scene and the sky with a Fresnel falloff (stronger at grazing angles). Wet roads give a sharp, streaky mirror image; dry roads only a faint sheen towards bright sky. `Wetness=auto` (default) makes the road wet while it rains (detected from the rain drawn by the game) and dry otherwise; `0.0` - `1.0` forces a wetness.
+* `SunShafts` - light shafts radiating from the sun when a bright, compact sun is visible in the sky (overcast or evenly bright skies are ignored).
+* `Haze` - aerial perspective: distant geometry fades towards the average sky color.
 
 ### HD texture packs
 
@@ -176,7 +179,7 @@ Every game texture is identified by a hash of its content, so replacement textur
 
 * `Alt+P` - toggle the effects (compare with the original look),
 * `Alt+S` - save a screenshot into `~/.nfs2se/screenshots`,
-* `Alt+M` - cycle debug views: world mask, ambient occlusion, depth, bloom.
+* `Alt+M` - cycle debug views: world mask, ambient occlusion, depth, bloom, reflections, sun shafts.
 
 ### Notes
 

@@ -372,6 +372,10 @@ static BOOL g_fogTableDirty;
 static BOOL g_seen3D;      /* 3D geometry was drawn since the last clip window change */
 static BOOL g_frameHas3D;  /* 3D geometry was drawn in this frame */
 
+/* Rain detection: the game draws rain streaks as flat, additive world triangles */
+static uint32_t g_frameRainTriangles;
+static float g_rainLevel; /* 0 - dry, 1 - raining (smoothed) */
+
 static BOOL checkShaderCompilation(GLuint shader)
 {
 	GLint status = 0;
@@ -1161,6 +1165,12 @@ REALIGN STDCALL void grBufferSwap(int swap_interval)
 	int32_t scaledMaxY = 480.0f * heightRatio + 0.5f;
 
 #ifdef GL2_ENHANCED
+	if (g_frameHas3D)
+	{
+		/* Dozens of streaks per frame mean rain, ramp the road wetness over a couple of seconds */
+		g_rainLevel += ((g_frameRainTriangles >= 30 ? 1.0f : 0.0f) - g_rainLevel) * 0.015f;
+	}
+	g_frameRainTriangles = 0;
 	postPresent(xOffset, winHeight - scaledMaxY - yOffset, scaledMaxX, scaledMaxY, xOffset, yOffset, visibleWidth, visibleHeight, g_gammaValue, g_frameHas3D);
 	g_prevFrameHas3D = g_frameHas3D;
 	g_frameHas3D = false;
@@ -1296,6 +1306,10 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 	const BOOL beyondFogTable = a->oow < 1.0f / 65535.0f || b->oow < 1.0f / 65535.0f || c->oow < 1.0f / 65535.0f;
 	int32_t mapping;
 	const uint8_t world = worldMask(a, b, c, &mapping);
+#ifdef GL2_ENHANCED
+	if (world && g_blendFuncDFactor == GL_ONE && a->oow == b->oow && b->oow == c->oow && a->oow < 0.999f)
+		++g_frameRainTriangles;
+#endif
 	const uint8_t mask = (world && beyondFogTable) ? world - 1 : world;
 	uint32_t i;
 	for (i = 0; i < 3; ++i)

@@ -67,6 +67,10 @@ GfxSettings gfx = {
 	0.35f, /* sharpen */
 	0.2f,  /* vignette */
 	0.0f,  /* filmGrain */
+	1.0f,  /* reflections */
+	-1.0f, /* wetness (automatic) */
+	0.6f,  /* sunShafts */
+	0.25f, /* haze */
 	320.0f, /* focalLength */
 	true   /* widescreen */
 };
@@ -354,6 +358,16 @@ static BOOL parseGfxBool(const char *line, const char *key, BOOL *value)
 	*value = !!atoi(line + len + 1);
 	return true;
 }
+static BOOL parseGfxWetness(const char *line)
+{
+	if (strncasecmp(line, "Wetness=", 8))
+		return false;
+	if (!strncasecmp(line + 8, "auto", 4))
+		gfx.wetness = -1.0f;
+	else
+		parseGfxFloat(line, "Wetness", &gfx.wetness, 0.0f, 1.0f);
+	return true;
+}
 static BOOL parseGfxSetting(const char *line)
 {
 	float anisotropy;
@@ -382,6 +396,10 @@ static BOOL parseGfxSetting(const char *line)
 		parseGfxFloat(line, "Sharpen", &gfx.sharpen, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "Vignette", &gfx.vignette, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "FilmGrain", &gfx.filmGrain, 0.0f, 1.0f) ||
+		parseGfxFloat(line, "Reflections", &gfx.reflections, 0.0f, 2.0f) ||
+		parseGfxWetness(line) ||
+		parseGfxFloat(line, "SunShafts", &gfx.sunShafts, 0.0f, 2.0f) ||
+		parseGfxFloat(line, "Haze", &gfx.haze, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "FocalLength", &gfx.focalLength, 50.0f, 2000.0f) ||
 		parseGfxBool(line, "Widescreen", &gfx.widescreen);
 }

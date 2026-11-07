@@ -30,7 +30,7 @@ float dpr = 1.0f;
 #ifdef NEW_RENDERER
 GfxSettings gfx = {
 	1.0f, 0, 16, true, true, true, false,
-	true, 1.0f, 2.0f, 0.35f, 1.5f, true, 1.0f, 1.08f, 1.05f, 0.0f, true, 0.35f, 0.2f, 0.0f, 320.0f, true
+	true, 1.0f, 2.0f, 0.35f, 1.5f, true, 1.0f, 1.08f, 1.05f, 0.0f, true, 0.35f, 0.2f, 0.0f, 1.0f, -1.0f, 0.6f, 0.25f, 320.0f, true
 };
 float widescreenScale = 1.0f;
 volatile BOOL gfxPostToggleRequest = false;
@@ -560,6 +560,10 @@ static void applySetting(const char *kv)
 	else if (!strcasecmp(key, "Sharpen")) gfx.sharpen = v;
 	else if (!strcasecmp(key, "Vignette")) gfx.vignette = v;
 	else if (!strcasecmp(key, "FilmGrain")) gfx.filmGrain = v;
+	else if (!strcasecmp(key, "Reflections")) gfx.reflections = v;
+	else if (!strcasecmp(key, "Wetness")) gfx.wetness = v;
+	else if (!strcasecmp(key, "SunShafts")) gfx.sunShafts = v;
+	else if (!strcasecmp(key, "Haze")) gfx.haze = v;
 	else if (!strcasecmp(key, "TextureDump")) gfx.textureDump = v != 0;
 	else if (!strcasecmp(key, "Widescreen")) gfx.widescreen = v != 0;
 	else if (!strcasecmp(key, "SettingsDir")) snprintf(g_settingsDir, sizeof g_settingsDir, "%s", eq + 1);
