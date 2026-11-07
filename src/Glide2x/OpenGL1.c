@@ -205,7 +205,7 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 }
 /* Car model replacement is only available in the OpenGL 2 renderer */
 int32_t carPartSkip;
-REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const int32_t *t)
+REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const int32_t *t, const uint8_t *object)
 {
 }
 REALIGN STDCALL void carModelLoaded(const char *fileName, const uint8_t *geo)

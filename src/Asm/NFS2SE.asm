@@ -168495,9 +168495,11 @@ sub_47FCA0: ;SUBROUTINE
 ;sub_47FCA0 endp
 
 sub_47FCD0: ;SUBROUTINE
-	; Car models: eax = part, edx = model->camera matrix (16.16), [esp+4] = camera space translation (16.16)
+	; Car models: eax = part, edx = model->camera matrix (16.16), [esp+4] = camera space translation (16.16),
+	; esi = game object of the car
 	pushad
-	push dword [esp+24h]
+	push esi
+	push dword [esp+28h]
 	push edx
 	push eax
 	call carPartHook

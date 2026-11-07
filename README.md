@@ -203,7 +203,9 @@ blender -b --python tools/car-models/export_carmodel.py -- car.glb ~/.nfs2se/mod
 
 For a quick test, `tools/car-models/install-carconcept.sh` downloads the Khronos [CarConcept](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept) sample model (CC BY 4.0, Eric Chadwick / Darmstadt Graphics Group) and installs it as the McLaren F1. `CarModels=0` disables replacement models.
 
-Current limitations: wheels don't turn or steer, the rear-view mirror is untested, and the model is drawn after the scene's polygons, so rain streaks and smoke in front of it are hidden behind it.
+Wheels spin with the distance the car travels and the front wheels steer by how fast the car turns (estimated from its motion, so slides and collisions are limited to a realistic steering angle). The converter recognizes wheels by object names starting with `WheelFrontL`, `WheelFrontR`, `WheelRearL`, `WheelRearR` (brake pads and calipers steer but don't spin).
+
+Current limitations: the rear-view mirror is untested, and the model is drawn after the scene's polygons, so rain streaks and smoke in front of it are hidden behind it.
 
 ### Hotkeys
 

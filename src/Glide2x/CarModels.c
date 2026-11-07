@@ -12,10 +12,16 @@
  * physically based shader. Its projection and depth match the game's exactly, so it sorts correctly against
  * the track and gets all post-processing effects.
  *
- * Model file (.cmdl, little endian): "CMDL", u32 version (1), u32 batch count, then per batch:
+ * Model file (.cmdl, little endian): "CMDL", u32 version (1 or 2), u32 batch count, then per batch:
  *   f32 color[4], metallic, roughness, transmission, clearcoat, emission[3]; char texture[64];
+ *   version 2: u32 wheel (0 - body, 1..4 - front left, front right, rear left, rear right), u32 spins, f32 pivot[3];
  *   u32 vertex count; vertices: f32 position[3], normal[3], uv[2] (Y up, front towards +Z, metres, right handed).
+ *
+ * Wheels spin with the distance the car travels and the front wheels steer by the turn rate of the car
+ * (bicycle model), both measured from the car's motion.
  */
+
+#include <SDL2/SDL_timer.h>
 
 #define CAR_MAX_GEOS   64
 #define CAR_MAX_MODELS 32
@@ -26,6 +32,9 @@ typedef struct
 	GLuint vbo, tex;
 	GLsizei count;
 	float color[4], metallic, roughness, transmission, clearcoat, emission[3];
+	int32_t wheel;   /* 0 - body, 1..4 - front left, front right, rear left, rear right */
+	BOOL spins;
+	float pivot[3];
 } CarBatch;
 
 typedef struct
@@ -34,6 +43,7 @@ typedef struct
 	CarBatch *batches;
 	int32_t batchCount;
 	float bmin[3], bmax[3];
+	float wheelRadius, wheelBase; /* Model units */
 	BOOL loaded, failed;
 } CarModel;
 
@@ -50,6 +60,7 @@ typedef struct
 {
 	const CarGeo *geo;
 	float rot[9], origin[3]; /* Car space -> camera space (metres) */
+	float spin, steer;       /* Wheels (radians) */
 	float proj[4];           /* Game projection: scale X, scale Y, center X, center Y */
 } CarDraw;
 
@@ -58,6 +69,17 @@ static int32_t  g_carGeoCount;
 static CarModel g_carModels[CAR_MAX_MODELS];
 static int32_t  g_carModelCount;
 static CarDraw  g_carDraws[CAR_MAX_DRAWS];
+
+/* Motion of each car (game object), for the wheels */
+typedef struct
+{
+	const uint8_t *object;
+	double pos[3], heading;
+	uint32_t ticks, frame;
+	float spin, steer;
+} CarMotion;
+static CarMotion g_carMotion[CAR_MAX_DRAWS];
+static uint32_t  g_carFrame;
 static int32_t  g_carDrawCount;
 static GLuint   g_carProg;
 static BOOL     g_carProgFailed;
@@ -104,7 +126,7 @@ static BOOL carLoadModel(CarModel *m)
 	m->failed = true;
 	if (!f)
 		return false;
-	if (fread(magic, 4, 1, f) != 1 || memcmp(magic, "CMDL", 4) || fread(&version, 4, 1, f) != 1 || version != 1 || fread(&count, 4, 1, f) != 1 || !count || count > 256)
+	if (fread(magic, 4, 1, f) != 1 || memcmp(magic, "CMDL", 4) || fread(&version, 4, 1, f) != 1 || version < 1 || version > 2 || fread(&count, 4, 1, f) != 1 || !count || count > 256)
 	{
 		fclose(f);
 		return false;
@@ -119,7 +141,18 @@ static BOOL carLoadModel(CarModel *m)
 		char tex[64];
 		uint32_t nv, k;
 		float *data;
-		if (fread(params, sizeof params, 1, f) != 1 || fread(tex, 64, 1, f) != 1 || fread(&nv, 4, 1, f) != 1 || nv > 16 * 1024 * 1024)
+		if (fread(params, sizeof params, 1, f) != 1 || fread(tex, 64, 1, f) != 1)
+			break;
+		if (version >= 2)
+		{
+			uint32_t wheel[2];
+			if (fread(wheel, sizeof wheel, 1, f) != 1 || fread(b->pivot, sizeof b->pivot, 1, f) != 1)
+				break;
+			b->wheel = wheel[0] <= 4 ? wheel[0] : 0;
+			b->spins = wheel[1] != 0;
+			b->pivot[0] = -b->pivot[0]; /* Right handed -> left handed */
+		}
+		if (fread(&nv, 4, 1, f) != 1 || nv > 16 * 1024 * 1024)
 			break;
 		data = malloc((size_t)nv * 32);
 		if (!data || fread(data, 32, nv, f) != nv)
@@ -180,6 +213,26 @@ static BOOL carLoadModel(CarModel *m)
 	fclose(f);
 	m->loaded = true;
 	m->failed = m->batchCount == 0;
+	/* Wheel size and wheel base from the wheel pivots (the pivot height is the radius: wheels stand on y = 0) */
+	{
+		float front = 0.0f, rear = 0.0f;
+		int32_t nf = 0, nr = 0;
+		m->wheelRadius = 0.0f;
+		for (i = 0; i < (uint32_t)m->batchCount; ++i)
+		{
+			const CarBatch *b = &m->batches[i];
+			if (!b->wheel || !b->spins)
+				continue;
+			m->wheelRadius = SDL_max(m->wheelRadius, b->pivot[1] - m->bmin[1]);
+			if (b->wheel <= 2)
+				front += b->pivot[2], ++nf;
+			else
+				rear += b->pivot[2], ++nr;
+		}
+		if (m->wheelRadius < 0.05f)
+			m->wheelRadius = 0.33f;
+		m->wheelBase = (nf && nr) ? fabsf(front / nf - rear / nr) : 2.6f;
+	}
 	fprintf(stderr, "Car model \"%s\": %d batches%s\n", m->name, m->batchCount, m->failed ? " (failed)" : "");
 	return !m->failed;
 }
@@ -256,7 +309,76 @@ REALIGN STDCALL void carModelLoaded(const char *fileName, const uint8_t *geo)
 }
 
 /* Game hook: a car part is drawn. Sets carPartSkip when the part is replaced by a model. */
-REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const int32_t *t)
+/* Updates the wheel spin and steering of a car from its motion since the previous frame */
+static CarMotion *carUpdateMotion(const uint8_t *object, const CarGeo *g)
+{
+	CarMotion *cm = NULL, *oldest = &g_carMotion[0];
+	const int32_t *pos = (const int32_t *)(object + 0x74), *mat = (const int32_t *)(object + 0x50);
+	const uint32_t ticks = SDL_GetTicks();
+	double p[3], heading;
+	int32_t i;
+	for (i = 0; i < CAR_MAX_DRAWS; ++i)
+	{
+		if (g_carMotion[i].object == object)
+		{
+			cm = &g_carMotion[i];
+			break;
+		}
+		if (g_carMotion[i].frame < oldest->frame)
+			oldest = &g_carMotion[i];
+	}
+	for (i = 0; i < 3; ++i)
+		p[i] = pos[i] / 65536.0;
+	heading = SDL_atan2(mat[6], mat[8]);
+	if (!cm)
+	{
+		cm = oldest;
+		memset(cm, 0, sizeof *cm);
+		cm->object = object;
+	}
+	else if (cm->frame != g_carFrame)
+	{
+		const double dt = (ticks - cm->ticks) / 1000.0;
+		const double dx = p[0] - cm->pos[0], dy = p[1] - cm->pos[1], dz = p[2] - cm->pos[2];
+		const double forward = (dx * mat[6] + dy * mat[7] + dz * mat[8]) / 65536.0;
+		const CarModel *m = g->model;
+		if (dt > 0.0 && dt < 0.5 && fabs(forward) < 20.0)
+		{
+			const double radius = m->wheelRadius * g->scale, speed = forward / dt;
+			double yaw = heading - cm->heading, target = cm->steer;
+			while (yaw > M_PI)
+				yaw -= 2.0 * M_PI;
+			while (yaw < -M_PI)
+				yaw += 2.0 * M_PI;
+			cm->spin += forward / radius;
+			while (cm->spin > M_PI)
+				cm->spin -= 2.0 * M_PI;
+			while (cm->spin < -M_PI)
+				cm->spin += 2.0 * M_PI;
+			if (fabs(speed) > 1.0)
+				target = SDL_atan2(m->wheelBase * g->scale * (yaw / dt), speed);
+			else if (fabs(speed) < 0.1)
+				target = 0.0;
+			/* Collisions and slides also turn the car: limit the angle like the steering of a real car at speed */
+			{
+				const double limit = SDL_min(0.6, 5.0 / SDL_max(fabs(speed), 1.0));
+				target = SDL_max(-limit, SDL_min(limit, target));
+			}
+			cm->steer += (target - cm->steer) * SDL_min(1.0, dt / 0.15);
+		}
+	}
+	else
+	{
+		return cm;
+	}
+	memcpy(cm->pos, p, sizeof p);
+	cm->heading = heading;
+	cm->ticks = ticks;
+	cm->frame = g_carFrame;
+	return cm;
+}
+
+REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const int32_t *t, const uint8_t *object)
 {
 	int32_t gi, i = -1;
 	carPartSkip = 0;
@@ -298,6 +420,13 @@ REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const in
 				return; /* High and low detail body of the same car */
 		}
 		d->geo = &g_carGeos[gi];
+		d->spin = d->steer = 0.0f;
+		if (object && g_carGeos[gi].model->loaded && g_carGeos[gi].fitted)
+		{
+			const CarMotion *cm = carUpdateMotion(object, &g_carGeos[gi]);
+			d->spin = cm->spin;
+			d->steer = cm->steer;
+		}
 		d->proj[0] = dword_4D5294;
 		d->proj[1] = flt_4D5298;
 		d->proj[2] = flt_4D529C;
@@ -313,14 +442,25 @@ static const char g_carVertexSrc[] =
 	"attribute vec2 aUV;\n"
 	"uniform mat4 uModelView;\n"
 	"uniform mat4 uProj;\n"
+	"uniform vec4 uWheel;\n"    /* Wheel pivot, w - 1 for wheels */
+	"uniform vec2 uWheelRot;\n" /* Spin (around the axle), steering (around the vertical) */
 	"varying vec3 vPos;\n"
 	"varying vec3 vNrm;\n"
 	"varying vec2 vUV;\n"
 	"void main()\n"
 	"{\n"
-	"	vec4 p = uModelView * vec4(aPos, 1.0);\n"
+	"	vec3 pos = aPos, nrm = aNrm;\n"
+	"	if (uWheel.w > 0.5)\n"
+	"	{\n"
+	"		float cs = cos(uWheelRot.x), ss = sin(uWheelRot.x), ct = cos(uWheelRot.y), st = sin(uWheelRot.y);\n"
+	"		mat3 spin = mat3(1.0, 0.0, 0.0, 0.0, cs, ss, 0.0, -ss, cs);\n"
+	"		mat3 steer = mat3(ct, 0.0, -st, 0.0, 1.0, 0.0, st, 0.0, ct);\n"
+	"		pos = steer * (spin * (pos - uWheel.xyz)) + uWheel.xyz;\n"
+	"		nrm = steer * (spin * nrm);\n"
+	"	}\n"
+	"	vec4 p = uModelView * vec4(pos, 1.0);\n"
 	"	vPos = p.xyz;\n"
-	"	vNrm = mat3(uModelView) * aNrm;\n"
+	"	vNrm = mat3(uModelView) * nrm;\n"
 	"	vUV = aUV;\n"
 	"	gl_Position = uProj * p;\n"
 	"}\n"
@@ -453,7 +593,7 @@ static BOOL carCreateProgram()
 	return true;
 }
 
-static void carDrawBatches(const CarModel *m, BOOL transparent)
+static void carDrawBatches(const CarModel *m, const CarDraw *d, BOOL transparent)
 {
 	int32_t i;
 	for (i = 0; i < m->batchCount; ++i)
@@ -465,6 +605,8 @@ static void carDrawBatches(const CarModel *m, BOOL transparent)
 		glUniform4f(glGetUniformLocation(g_carProg, "uPbr"), b->metallic, b->roughness, b->transmission, b->clearcoat);
 		glUniform3f(glGetUniformLocation(g_carProg, "uEmission"), b->emission[0], b->emission[1], b->emission[2]);
 		glUniform1f(glGetUniformLocation(g_carProg, "uHasTex"), b->tex ? 1.0f : 0.0f);
+		glUniform4f(glGetUniformLocation(g_carProg, "uWheel"), b->pivot[0], b->pivot[1], b->pivot[2], b->wheel ? 1.0f : 0.0f);
+		glUniform2f(glGetUniformLocation(g_carProg, "uWheelRot"), b->spins ? d->spin : 0.0f, b->wheel == 1 || b->wheel == 2 ? d->steer : 0.0f);
 		glBindTexture(GL_TEXTURE_2D, b->tex);
 		glBindBuffer(GL_ARRAY_BUFFER, b->vbo);
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 32, (const void *)0);
@@ -556,14 +698,15 @@ static void carModelsDraw()
 		glUniform3f(glGetUniformLocation(g_carProg, "uUp"), d->rot[1], d->rot[4], d->rot[7]);
 		glUniform3f(glGetUniformLocation(g_carProg, "uSun"), 0.3f + d->rot[1], 0.9f * d->rot[4] + 0.3f, -0.4f + d->rot[7]);
 		glDisable(GL_BLEND);
-		carDrawBatches(g->model, false);
+		carDrawBatches(g->model, d, false);
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glDepthMask(GL_FALSE);
-		carDrawBatches(g->model, true);
+		carDrawBatches(g->model, d, true);
 		glDepthMask(GL_TRUE);
 	}
 	g_carDrawCount = 0;
+	++g_carFrame;
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glDisableVertexAttribArray(1);
