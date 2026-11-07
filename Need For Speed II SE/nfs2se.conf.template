@@ -90,6 +90,9 @@
 #Widescreen:
 #	1 - Hor+ widescreen on windows wider than 4:3: wider field of view, HUD and menus stay 4:3 in the middle (default)
 #	0 - Original 4:3 picture (see "KeepAspectRatio")
+#CarModels:
+#	1 - Replace cars with detailed models from "<settings directory>/models/<car>/model.cmdl" when available (default)
+#	0 - Always use the original car models
 #JoystickApplyDeadzone:
 #	Apply game default deadzone for joysticks
 #JoystickDisableAxesInMenu:
@@ -176,6 +179,7 @@ SunShafts=0.6
 Haze=0.25
 FocalLength=320
 Widescreen=1
+CarModels=1
 LinuxCOM1=/dev/ttyS0
 LinuxCOM2=/dev/ttyS1
 LinuxCOM3=/dev/ttyUSB0

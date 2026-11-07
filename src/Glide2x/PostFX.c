@@ -228,7 +228,8 @@ static const char g_postBlurSrc[] =
 ;
 
 /*
- * Sky probe (3x1): x=0 - average sky color (HDR), x=1 - sun position (uv, coverage, spread), x=2 - sun color.
+ * Sky probe (4x1): x=0 - average sky color (HDR), x=1 - sun position (uv, coverage, spread), x=2 - sun color,
+ * x=3 - average color of the visible scenery (not sky).
  * The "sun" is the centroid of very bright sky pixels; a large spread means an evenly bright (overcast) sky.
  */
 static const char g_postSkySrc[] =
@@ -239,7 +240,7 @@ static const char g_postSkySrc[] =
 	"uniform float uWhite;\n"
 	"void main()\n"
 	"{\n"
-	"	vec3 skySum = vec3(0.0), allSum = vec3(0.0), sunSum = vec3(0.0);\n"
+	"	vec3 skySum = vec3(0.0), allSum = vec3(0.0), sunSum = vec3(0.0), worldSum = vec3(0.0);\n"
 	"	vec2 sunUV = vec2(0.0), sunUV2 = vec2(0.0);\n"
 	"	float skyN = 0.0, allN = 0.0, sunW = 0.0;\n"
 	"	for (int y = 0; y < 24; ++y)\n"
@@ -262,6 +263,8 @@ static const char g_postSkySrc[] =
 	"				sunUV2 += uv * uv * b;\n"
 	"				sunW += b;\n"
 	"			}\n"
+	"			else\n"
+	"				worldSum += c;\n"
 	"		}\n"
 	"	}\n"
 	"	float px = floor(gl_FragCoord.x);\n"
@@ -275,9 +278,13 @@ static const char g_postSkySrc[] =
 	"		vec2 v = max(sunUV2 / max(sunW, 1e-4) - m * m, vec2(0.0));\n"
 	"		gl_FragColor = vec4(m, sunW / 1152.0, sqrt(v.x + v.y));\n"
 	"	}\n"
-	"	else\n"
+	"	else if (px < 2.5)\n"
 	"	{\n"
 	"		gl_FragColor = vec4(sunSum / max(sunW, 1e-4), 1.0);\n"
+	"	}\n"
+	"	else\n"
+	"	{\n"
+	"		gl_FragColor = vec4(worldSum / max(allN - skyN, 1.0), 1.0);\n"
 	"	}\n"
 	"}\n"
 ;
@@ -342,7 +349,7 @@ static const char g_postSSRSrc[] =
 	"	float F = F0 + (max(1.0 - rough, F0) - F0) * pow(1.0 - NoV, 5.0);\n"
 	"	float spec = clamp(F * ground * uStrength, 0.0, 0.95);\n"
 	/* Environment: the sky in the reflected direction, searched upwards past objects on the horizon */
-	"	vec3 skyAvg = texture2D(uSky, vec2(0.5 / 3.0, 0.5)).rgb;\n"
+	"	vec3 skyAvg = texture2D(uSky, vec2(0.5 / 4.0, 0.5)).rgb;\n"
 	"	vec3 env = skyAvg;\n"
 	"	if (R.z > 0.01)\n"
 	"	{\n"
@@ -460,7 +467,7 @@ static const char g_postShaftsSrc[] =
 	"uniform vec2 uAspect;\n"
 	"void main()\n"
 	"{\n"
-	"	vec4 sun = texture2D(uSky, vec2(1.5 / 3.0, 0.5));\n"
+	"	vec4 sun = texture2D(uSky, vec2(1.5 / 4.0, 0.5));\n"
 	"	float strength = smoothstep(0.0005, 0.01, sun.z) * (1.0 - smoothstep(0.05, 0.1, sun.w));\n"
 	"	if (strength <= 0.0)\n"
 	"	{\n"
@@ -478,7 +485,7 @@ static const char g_postShaftsSrc[] =
 	"		decay *= 0.97;\n"
 	"		uv += delta;\n"
 	"	}\n"
-	"	vec3 sunColor = texture2D(uSky, vec2(2.5 / 3.0, 0.5)).rgb;\n"
+	"	vec3 sunColor = texture2D(uSky, vec2(2.5 / 4.0, 0.5)).rgb;\n"
 	"	sunColor /= max(luma(sunColor), 1e-3);\n"
 	"	float dist = length((sun.xy - vUV) * uAspect);\n"
 	"	gl_FragColor = vec4(sunColor * illum / float(samples) * strength * (1.0 - 0.6 * smoothstep(0.0, 1.5, dist)), 1.0);\n"
@@ -620,7 +627,7 @@ static const char g_postCompositeSrc[] =
 	/* Aerial perspective: distant geometry fades towards the sky color */
 	"	if (uHaze > 0.0 && depth < 0.999999)\n"
 	"	{\n"
-	"		vec3 skyColor = texture2D(uSky, vec2(0.5 / 3.0, 0.5)).rgb;\n"
+	"		vec3 skyColor = texture2D(uSky, vec2(0.5 / 4.0, 0.5)).rgb;\n"
 	"		hdr = mix(hdr, skyColor, uHaze * (1.0 - exp(-linearDepth(depth) * 0.003)) * mask);\n"
 	"	}\n"
 	"	hdr = mix(hdr, refl.rgb, refl.a * mask);\n"
@@ -1096,7 +1103,7 @@ static GLuint postCreateTargets(int32_t w, int32_t h)
 		if (g_post.hasFloat && g_post.skyProg)
 		{
 			/* Optional HDR targets: sky probe, reflections and sun shafts */
-			if (postCreateTarget(&g_post.sky, 3, 1, true))
+			if (postCreateTarget(&g_post.sky, 4, 1, true))
 			{
 				glBindTexture(GL_TEXTURE_2D, g_post.sky.tex);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);

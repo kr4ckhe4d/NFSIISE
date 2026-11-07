@@ -44,6 +44,14 @@ extern grDepthBufferMode
 extern grDepthMask
 extern grDitherMode
 extern grDrawLine
+extern carPartHook
+extern carPartSkip
+extern carModelLoaded
+extern carModelsFlush
+global dword_4D5294
+global flt_4D5298
+global flt_4D529C
+global flt_4D52A0
 extern grDrawTriangle
 extern grFogColorValue
 extern grFogMode
@@ -53403,6 +53411,10 @@ loc_42A3D8:
 	jnz loc_42A3D8
 
 loc_42A3EC:
+	; Car models: draw them after the scene's polygons
+	pushad
+	call carModelsFlush
+	popad
 	pop edx
 	pop ecx
 	pop ebx
@@ -143294,6 +143306,13 @@ loc_46E3FE:
 loc_46E407:
 	mov edx, [esp+108h]
 	mov eax, [esp+104h]
+	; Car models: the GEO model was loaded, the file name is at [esp]
+	pushad
+	push eax
+	lea ecx, [esp+24h]
+	push ecx
+	call carModelLoaded
+	popad
 	call sub_476F60
 	mov eax, [esp+104h]
 	add esp, 110h
@@ -168476,6 +168495,18 @@ sub_47FCA0: ;SUBROUTINE
 ;sub_47FCA0 endp
 
 sub_47FCD0: ;SUBROUTINE
+	; Car models: eax = part, edx = model->camera matrix (16.16), [esp+4] = camera space translation (16.16)
+	pushad
+	push dword [esp+24h]
+	push edx
+	push eax
+	call carPartHook
+	popad
+	cmp dword [carPartSkip], 0
+	jz loc_47FCD0_draw
+	ret 0Ch
+
+loc_47FCD0_draw:
 	push esi
 	push edi
 	push ebp

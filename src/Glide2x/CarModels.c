@@ -1,0 +1,580 @@
+// SPDX-License-Identifier: MIT
+
+/*
+ * Replacement car models.
+ *
+ * The game transforms every car part on the CPU and draws pre-projected polygons. Two hooks in the game code
+ * report to the renderer:
+ *   - carModelLoaded(): a car's GEO model was loaded (file name and the in-memory model),
+ *   - carPartHook(): a car part is about to be drawn, with its model -> camera matrix and translation.
+ * When a converted model exists in "<settings>/models/<car>/model.cmdl", the original parts of that car are
+ * skipped and the model is drawn instead, fitted to the size of the original body and wheels and lit with a
+ * physically based shader. Its projection and depth match the game's exactly, so it sorts correctly against
+ * the track and gets all post-processing effects.
+ *
+ * Model file (.cmdl, little endian): "CMDL", u32 version (1), u32 batch count, then per batch:
+ *   f32 color[4], metallic, roughness, transmission, clearcoat, emission[3]; char texture[64];
+ *   u32 vertex count; vertices: f32 position[3], normal[3], uv[2] (Y up, front towards +Z, metres, right handed).
+ */
+
+#define CAR_MAX_GEOS   64
+#define CAR_MAX_MODELS 32
+#define CAR_MAX_DRAWS  32
+
+typedef struct
+{
+	GLuint vbo, tex;
+	GLsizei count;
+	float color[4], metallic, roughness, transmission, clearcoat, emission[3];
+} CarBatch;
+
+typedef struct
+{
+	char name[32];
+	CarBatch *batches;
+	int32_t batchCount;
+	float bmin[3], bmax[3];
+	BOOL loaded, failed;
+} CarModel;
+
+typedef struct
+{
+	const uint8_t *geo;
+	CarModel *model;
+	float scale, offset[3]; /* Model space (mirrored X) -> car space */
+	BOOL fitted;
+	char name[32];
+} CarGeo;
+
+typedef struct
+{
+	const CarGeo *geo;
+	float rot[9], origin[3]; /* Car space -> camera space (metres) */
+	float proj[4];           /* Game projection: scale X, scale Y, center X, center Y */
+} CarDraw;
+
+static CarGeo   g_carGeos[CAR_MAX_GEOS];
+static int32_t  g_carGeoCount;
+static CarModel g_carModels[CAR_MAX_MODELS];
+static int32_t  g_carModelCount;
+static CarDraw  g_carDraws[CAR_MAX_DRAWS];
+static int32_t  g_carDrawCount;
+static GLuint   g_carProg;
+static BOOL     g_carProgFailed;
+int32_t carPartSkip; /* Read by the game code after carPartHook() */
+
+extern float dword_4D5294, flt_4D5298, flt_4D529C, flt_4D52A0; /* Game projection: scale X, scale Y, center X, center Y */
+
+static inline const uint8_t *carGeoPart(const uint8_t *geo, int32_t i)
+{
+	return *(const uint8_t *const *)(geo + 4 + i * 4);
+}
+
+static CarModel *carFindModel(const char *name)
+{
+	char path[1024];
+	CarModel *m;
+	int32_t i;
+	for (i = 0; i < g_carModelCount; ++i)
+		if (!strcmp(g_carModels[i].name, name))
+			return g_carModels[i].failed ? NULL : &g_carModels[i];
+	snprintf(path, sizeof path, "%s/models/%s/model.cmdl", getSettingsDir(), name);
+	FILE *f = fopen(path, "rb");
+	if (!f || g_carModelCount >= CAR_MAX_MODELS)
+	{
+		if (f)
+			fclose(f);
+		return NULL;
+	}
+	fclose(f);
+	m = &g_carModels[g_carModelCount++];
+	memset(m, 0, sizeof *m);
+	snprintf(m->name, sizeof m->name, "%s", name);
+	return m;
+}
+
+/* Reads the model file (GL resources are created on first use, from the rendering code) */
+static BOOL carLoadModel(CarModel *m)
+{
+	char path[1024], magic[4];
+	uint32_t version, count, i;
+	FILE *f;
+	snprintf(path, sizeof path, "%s/models/%s/model.cmdl", getSettingsDir(), m->name);
+	f = fopen(path, "rb");
+	m->failed = true;
+	if (!f)
+		return false;
+	if (fread(magic, 4, 1, f) != 1 || memcmp(magic, "CMDL", 4) || fread(&version, 4, 1, f) != 1 || version != 1 || fread(&count, 4, 1, f) != 1 || !count || count > 256)
+	{
+		fclose(f);
+		return false;
+	}
+	m->batches = calloc(count, sizeof(CarBatch));
+	m->bmin[0] = m->bmin[1] = m->bmin[2] = 1e9f;
+	m->bmax[0] = m->bmax[1] = m->bmax[2] = -1e9f;
+	for (i = 0; i < count; ++i)
+	{
+		CarBatch *b = &m->batches[i];
+		float params[11];
+		char tex[64];
+		uint32_t nv, k;
+		float *data;
+		if (fread(params, sizeof params, 1, f) != 1 || fread(tex, 64, 1, f) != 1 || fread(&nv, 4, 1, f) != 1 || nv > 16 * 1024 * 1024)
+			break;
+		data = malloc((size_t)nv * 32);
+		if (!data || fread(data, 32, nv, f) != nv)
+		{
+			free(data);
+			break;
+		}
+		memcpy(b->color, params, sizeof b->color);
+		b->metallic = params[4];
+		b->roughness = params[5];
+		b->transmission = params[6];
+		b->clearcoat = params[7];
+		memcpy(b->emission, params + 8, sizeof b->emission);
+		/* glTF import sets white emission on materials that don't emit */
+		if (b->emission[0] == 1.0f && b->emission[1] == 1.0f && b->emission[2] == 1.0f)
+			b->emission[0] = b->emission[1] = b->emission[2] = 0.0f;
+		for (k = 0; k < nv; ++k)
+		{
+			float *v = data + k * 8;
+			int32_t c;
+			/* Right handed (glTF) -> the game's left handed space */
+			v[0] = -v[0];
+			v[3] = -v[3];
+			for (c = 0; c < 3; ++c)
+			{
+				m->bmin[c] = SDL_min(m->bmin[c], v[c]);
+				m->bmax[c] = SDL_max(m->bmax[c], v[c]);
+			}
+		}
+		glGenBuffers(1, &b->vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, b->vbo);
+		glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)nv * 32, data, GL_STATIC_DRAW);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		free(data);
+		b->count = nv;
+		tex[63] = '\0';
+		if (tex[0])
+		{
+			char texPath[1200];
+			int32_t w, h, comp;
+			uint8_t *pixels;
+			snprintf(texPath, sizeof texPath, "%s/models/%s/%s", getSettingsDir(), m->name, tex);
+			pixels = stbi_load(texPath, &w, &h, &comp, 4);
+			if (pixels)
+			{
+				glGenTextures(1, &b->tex);
+				glBindTexture(GL_TEXTURE_2D, b->tex);
+				glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+				stbi_image_free(pixels);
+				glBindTexture(GL_TEXTURE_2D, g_boundTexture);
+			}
+		}
+		m->batchCount = i + 1;
+	}
+	fclose(f);
+	m->loaded = true;
+	m->failed = m->batchCount == 0;
+	fprintf(stderr, "Car model \"%s\": %d batches%s\n", m->name, m->batchCount, m->failed ? " (failed)" : "");
+	return !m->failed;
+}
+
+/* Fits the model to the original car: body length and center, wheels on the ground */
+static void carFitModel(CarGeo *g)
+{
+	float bmin[3] = {1e9f, 1e9f, 1e9f}, bmax[3] = {-1e9f, -1e9f, -1e9f}, ground = 1e9f;
+	const CarModel *m = g->model;
+	int32_t i, c;
+	uint32_t k;
+	for (i = 0; i < 20; ++i)
+	{
+		const uint8_t *part = carGeoPart(g->geo, i);
+		const uint32_t nv = *(const uint32_t *)part;
+		const int32_t *pos = (const int32_t *)(part + 8);
+		const int16_t *v = *(int16_t *const *)(part + 0x14);
+		const BOOL body = i <= 8, wheel = i >= 12 && i <= 19;
+		if (!nv || !v || !(body || wheel))
+			continue;
+		for (k = 0; k < nv; ++k)
+		{
+			float p[3];
+			for (c = 0; c < 3; ++c)
+				p[c] = pos[c] / 65536.0f + v[k * 3 + c] / 256.0f;
+			if (body)
+			{
+				for (c = 0; c < 3; ++c)
+				{
+					bmin[c] = SDL_min(bmin[c], p[c]);
+					bmax[c] = SDL_max(bmax[c], p[c]);
+				}
+			}
+			else
+			{
+				ground = SDL_min(ground, p[1]);
+			}
+		}
+	}
+	if (ground > 1e8f)
+		ground = bmin[1];
+	g->scale = (bmax[2] - bmin[2]) / SDL_max(m->bmax[2] - m->bmin[2], 0.01f);
+	g->offset[0] = (bmin[0] + bmax[0]) * 0.5f - (m->bmin[0] + m->bmax[0]) * 0.5f * g->scale;
+	g->offset[1] = ground - m->bmin[1] * g->scale;
+	g->offset[2] = (bmin[2] + bmax[2]) * 0.5f - (m->bmin[2] + m->bmax[2]) * 0.5f * g->scale;
+}
+
+/* Game hook: a car GEO model was loaded */
+REALIGN STDCALL void carModelLoaded(const char *fileName, const uint8_t *geo)
+{
+	char name[32];
+	const char *base = fileName, *p;
+	CarGeo *g = NULL;
+	int32_t i;
+	for (p = fileName; *p; ++p)
+		if (*p == '/' || *p == '\\' || *p == ':')
+			base = p + 1;
+	for (i = 0; i < (int32_t)sizeof name - 1 && base[i] && base[i] != '.'; ++i)
+		name[i] = tolower((unsigned char)base[i]);
+	name[i] = '\0';
+	for (i = 0; i < g_carGeoCount; ++i)
+		if (g_carGeos[i].geo == geo)
+			g = &g_carGeos[i];
+	if (!g)
+	{
+		if (g_carGeoCount >= CAR_MAX_GEOS)
+			memmove(g_carGeos, g_carGeos + 1, sizeof(CarGeo) * --g_carGeoCount);
+		g = &g_carGeos[g_carGeoCount++];
+	}
+	g->geo = geo;
+	g->model = carFindModel(name);
+	g->fitted = false;
+	snprintf(g->name, sizeof g->name, "%s", name);
+}
+
+/* Game hook: a car part is drawn. Sets carPartSkip when the part is replaced by a model. */
+REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const int32_t *t)
+{
+	int32_t gi, i = -1;
+	carPartSkip = 0;
+	for (gi = g_carGeoCount - 1; gi >= 0 && i < 0; --gi)
+	{
+		int32_t k;
+		if (!g_carGeos[gi].model || g_carGeos[gi].model->failed)
+			continue;
+		for (k = 0; k < 32; ++k)
+		{
+			if (carGeoPart(g_carGeos[gi].geo, k) == part)
+			{
+				i = k;
+				break;
+			}
+		}
+		if (i >= 0)
+			break;
+	}
+	if (i < 0 || !gfx.carModels)
+		return;
+	/* Shadow (part 9) stays, everything else is replaced */
+	if (i == 9 || i == 10)
+		return;
+	carPartSkip = 1;
+	if ((i == 1 || i == 21) && g_carDrawCount < CAR_MAX_DRAWS)
+	{
+		const int32_t *pos = (const int32_t *)(part + 8);
+		CarDraw *d = &g_carDraws[g_carDrawCount];
+		int32_t r, c;
+		for (r = 0; r < 3; ++r)
+			for (c = 0; c < 3; ++c)
+				d->rot[r * 3 + c] = m[c * 3 + r] / 65536.0f; /* Row vector convention in the game */
+		for (r = 0; r < 3; ++r)
+			d->origin[r] = (t[r] - (pos[0] / 65536.0f * m[0 * 3 + r] + pos[1] / 65536.0f * m[1 * 3 + r] + pos[2] / 65536.0f * m[2 * 3 + r])) / 65536.0f;
+		for (r = 0; r < g_carDrawCount; ++r)
+		{
+			if (g_carDraws[r].geo == &g_carGeos[gi] && fabsf(g_carDraws[r].origin[0] - d->origin[0]) + fabsf(g_carDraws[r].origin[2] - d->origin[2]) < 0.05f)
+				return; /* High and low detail body of the same car */
+		}
+		d->geo = &g_carGeos[gi];
+		d->proj[0] = dword_4D5294;
+		d->proj[1] = flt_4D5298;
+		d->proj[2] = flt_4D529C;
+		d->proj[3] = flt_4D52A0;
+		++g_carDrawCount;
+	}
+}
+
+static const char g_carVertexSrc[] =
+	"#version 120\n"
+	"attribute vec3 aPos;\n"
+	"attribute vec3 aNrm;\n"
+	"attribute vec2 aUV;\n"
+	"uniform mat4 uModelView;\n"
+	"uniform mat4 uProj;\n"
+	"varying vec3 vPos;\n"
+	"varying vec3 vNrm;\n"
+	"varying vec2 vUV;\n"
+	"void main()\n"
+	"{\n"
+	"	vec4 p = uModelView * vec4(aPos, 1.0);\n"
+	"	vPos = p.xyz;\n"
+	"	vNrm = mat3(uModelView) * aNrm;\n"
+	"	vUV = aUV;\n"
+	"	gl_Position = uProj * p;\n"
+	"}\n"
+;
+
+static const char g_carFragmentSrc[] =
+	"#version 120\n"
+	"varying vec3 vPos;\n"
+	"varying vec3 vNrm;\n"
+	"varying vec2 vUV;\n"
+	"uniform sampler2D uTex;\n"
+	"uniform sampler2D uSky;\n"
+	"uniform float uHasTex;\n"
+	"uniform float uHasSky;\n"
+	"uniform vec4 uColor;\n"
+	"uniform vec4 uPbr;\n"       /* metallic, roughness, transmission, clearcoat */
+	"uniform vec3 uEmission;\n"
+	"uniform vec3 uUp;\n"        /* World up in camera space */
+	"uniform vec3 uSun;\n"       /* Default direction towards the sun in camera space */
+	"uniform vec4 uSunProj;\n"   /* Sun probe UV -> camera space direction (X/Z, Y/Z) */
+	"vec3 toLinear(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }\n"
+	"void main()\n"
+	"{\n"
+	"	vec3 N = normalize(vNrm);\n"
+	"	vec3 V = normalize(-vPos);\n"
+	"	if (dot(N, V) < 0.0)\n"
+	"		N = -N;\n"
+	"	vec4 base = uColor;\n"
+	"	if (uHasTex > 0.5)\n"
+	"		base *= vec4(toLinear(texture2D(uTex, vUV).rgb), texture2D(uTex, vUV).a);\n"
+	/*
+	 * Lighting in the game's exposure: its scenery shows textures at about full brightness whatever the sky,
+	 * so the base illumination is fixed and only tinted by the sky's hue. A bright sky (e.g. a sunset) and a
+	 * visible sun add to it.
+	 */
+	"	vec3 skyRaw = vec3(0.55, 0.6, 0.7), sunRaw = vec3(0.0);\n"
+	"	vec3 L = normalize(uSun);\n"
+	"	float sunVisible = 0.0;\n"
+	"	if (uHasSky > 0.5)\n"
+	"	{\n"
+	"		skyRaw = texture2D(uSky, vec2(0.5 / 4.0, 0.5)).rgb;\n"
+	"		vec4 sun = texture2D(uSky, vec2(1.5 / 4.0, 0.5));\n"
+	"		sunVisible = smoothstep(0.0, 0.002, sun.z) * (1.0 - smoothstep(0.05, 0.1, sun.w));\n"
+	"		if (sunVisible > 0.0)\n"
+	"			L = normalize(mix(L, normalize(vec3(sun.x * uSunProj.x + uSunProj.z, (1.0 - sun.y) * uSunProj.y + uSunProj.w, 1.0)), sunVisible));\n"
+	"		sunRaw = min(texture2D(uSky, vec2(2.5 / 4.0, 0.5)).rgb, vec3(3.0));\n"
+	"	}\n"
+	"	float skyLuma = dot(skyRaw, vec3(0.2126, 0.7152, 0.0722));\n"
+	"	vec3 hue = mix(vec3(1.0), clamp(skyRaw / max(skyLuma, 1e-4), 0.0, 3.0), 0.3);\n"
+	"	vec3 sky = max(skyRaw, hue * 0.7);\n"
+	"	vec3 ground = hue * 0.06;\n"
+	"	vec3 sunColor = mix(hue * 0.55, sunRaw, sunVisible);\n"
+	/* Car paint (clear coated): the colored base coat also scatters light diffusely, it's not a bare metal */
+	"	float metal = uPbr.w > 0.0 ? min(uPbr.x, 0.45) : uPbr.x, rough = max(uPbr.y, 0.04), a = rough * rough;\n"
+	"	vec3 R = reflect(-V, N);\n"
+	"	float ry = dot(R, uUp);\n"
+	"	vec3 horizon = hue * 0.18;\n"
+	"	vec3 env = ry < 0.0 ? mix(horizon, ground, smoothstep(0.0, 0.3 + rough, -ry)) : mix(horizon, sky, smoothstep(0.05, 0.5 + rough, ry));\n"
+	"	vec3 F0 = mix(vec3(0.04), base.rgb, metal);\n"
+	"	float NoV = clamp(dot(N, V), 0.0, 1.0);\n"
+	"	vec3 F = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - NoV, 5.0);\n"
+	/* Sun: Lambert + GGX */
+	"	vec3 H = normalize(L + V);\n"
+	"	float NoL = clamp(dot(N, L), 0.0, 1.0), NoH = clamp(dot(N, H), 0.0, 1.0);\n"
+	"	float d = NoH * NoH * (a * a - 1.0) + 1.0;\n"
+	"	float D = a * a / (3.14159 * d * d);\n"
+	"	float k = a * 0.5;\n"
+	"	float G = NoL / (NoL * (1.0 - k) + k) * NoV / (NoV * (1.0 - k) + k);\n"
+	"	vec3 spec = D * G * F / max(4.0 * NoL * NoV, 0.001);\n"
+	"	float hemi = 0.5 + 0.5 * dot(N, uUp);\n"
+	"	vec3 ambient = hue * mix(0.2, 0.55, hemi) + skyRaw * 0.12 * hemi;\n"
+	"	vec3 diffuse = base.rgb * (1.0 - metal);\n"
+	"	vec3 color = diffuse * (ambient + sunColor * NoL * 0.9) + spec * sunColor * NoL + env * F;\n"
+	/* Clear coat: an extra sharp reflection layer on car paint */
+	"	float Fc = 0.04 + 0.96 * pow(1.0 - NoV, 5.0);\n"
+	"	vec3 envSharp = ry < 0.0 ? mix(horizon, ground, smoothstep(0.0, 0.08, -ry)) : mix(horizon, sky, smoothstep(0.05, 0.25, ry));\n"
+	"	color = mix(color, envSharp, uPbr.w * Fc);\n"
+	"	color += uEmission;\n"
+	"	float alpha = base.a;\n"
+	/* Glass: mostly transparent, reflective at grazing angles */
+	"	if (uPbr.z > 0.5)\n"
+	"	{\n"
+	"		float Fg = 0.04 + 0.96 * pow(1.0 - NoV, 5.0);\n"
+	"		color = env * Fg + vec3(0.01, 0.012, 0.015);\n"
+	"		alpha = clamp(0.35 + Fg, 0.0, 1.0);\n"
+	"	}\n"
+	/* The scene is stored in the game's gamma space, highlights are compressed like the post-processing expects */
+	"	color = color / (1.0 + color * 0.75);\n"
+	"	gl_FragData[0] = vec4(pow(color, vec3(1.0 / 2.2)), alpha);\n"
+	"	gl_FragData[1] = vec4(1.0, 0.0, 0.0, alpha);\n"
+	"}\n"
+;
+
+static BOOL carCreateProgram()
+{
+	const GLchar *vsrc = g_carVertexSrc, *fsrc = g_carFragmentSrc;
+	GLuint vs, fs;
+	if (g_carProg || g_carProgFailed)
+		return g_carProg != 0;
+	g_carProgFailed = true;
+	vs = glCreateShader(GL_VERTEX_SHADER);
+	fs = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(vs, 1, &vsrc, NULL);
+	glShaderSource(fs, 1, &fsrc, NULL);
+	glCompileShader(vs);
+	glCompileShader(fs);
+	if (!checkShaderCompilation(vs) || !checkShaderCompilation(fs))
+	{
+		fprintf(stderr, "Car models: cannot compile shaders\n");
+		glDeleteShader(vs);
+		glDeleteShader(fs);
+		return false;
+	}
+	g_carProg = glCreateProgram();
+	glAttachShader(g_carProg, vs);
+	glAttachShader(g_carProg, fs);
+	glBindAttribLocation(g_carProg, 0, "aPos");
+	glBindAttribLocation(g_carProg, 1, "aNrm");
+	glBindAttribLocation(g_carProg, 2, "aUV");
+	glLinkProgram(g_carProg);
+	glDeleteShader(vs);
+	glDeleteShader(fs);
+	if (!checkShaderProgram(g_carProg))
+	{
+		glDeleteProgram(g_carProg);
+		g_carProg = 0;
+		return false;
+	}
+	g_carProgFailed = false;
+	return true;
+}
+
+static void carDrawBatches(const CarModel *m, BOOL transparent)
+{
+	int32_t i;
+	for (i = 0; i < m->batchCount; ++i)
+	{
+		const CarBatch *b = &m->batches[i];
+		if ((b->transmission > 0.5f || b->color[3] < 0.99f) != transparent || !b->count)
+			continue;
+		glUniform4f(glGetUniformLocation(g_carProg, "uColor"), b->color[0], b->color[1], b->color[2], b->color[3]);
+		glUniform4f(glGetUniformLocation(g_carProg, "uPbr"), b->metallic, b->roughness, b->transmission, b->clearcoat);
+		glUniform3f(glGetUniformLocation(g_carProg, "uEmission"), b->emission[0], b->emission[1], b->emission[2]);
+		glUniform1f(glGetUniformLocation(g_carProg, "uHasTex"), b->tex ? 1.0f : 0.0f);
+		glBindTexture(GL_TEXTURE_2D, b->tex);
+		glBindBuffer(GL_ARRAY_BUFFER, b->vbo);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 32, (const void *)0);
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 32, (const void *)12);
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 32, (const void *)24);
+		glDrawArrays(GL_TRIANGLES, 0, b->count);
+	}
+}
+
+/* Draws the queued car models into the current (main) view */
+static void carModelsDraw()
+{
+	int32_t i;
+	if (!g_carDrawCount)
+		return;
+	drawTriangles();
+	if (!carCreateProgram())
+	{
+		g_carDrawCount = 0;
+		return;
+	}
+
+	glUseProgram(g_carProg);
+	glDisableVertexAttribArray(g_aPositionLoc);
+	glDisableVertexAttribArray(g_aTexCoordLoc);
+	glDisableVertexAttribArray(g_aColorLoc);
+	glDisableVertexAttribArray(g_aFogLoc);
+	if (g_aMaskLoc >= 0)
+		glDisableVertexAttribArray(g_aMaskLoc);
+	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
+	glEnableVertexAttribArray(2);
+	glUniform1i(glGetUniformLocation(g_carProg, "uTex"), 0);
+	glUniform1i(glGetUniformLocation(g_carProg, "uSky"), 1);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, g_post.sky.tex);
+	glActiveTexture(GL_TEXTURE0);
+	glUniform1f(glGetUniformLocation(g_carProg, "uHasSky"), (g_post.ok && g_post.sky.tex && g_prevFrameHas3D) ? 1.0f : 0.0f);
+	glDepthMask(GL_TRUE);
+	glEnable(GL_DEPTH_TEST);
+
+	for (i = 0; i < g_carDrawCount; ++i)
+	{
+		const CarDraw *d = &g_carDraws[i];
+		CarGeo *g = (CarGeo *)d->geo;
+		if (!g->model->loaded)
+			carLoadModel(g->model);
+		if (g->model->failed)
+			continue;
+		if (!g->fitted)
+		{
+			carFitModel(g);
+			g->fitted = true;
+			fprintf(stderr, "Car \"%s\": replacement model, scale %.3f\n", g->name, g->scale);
+		}
+		const float s = g->scale;
+		/* uModelView = [R * s | R * offset + origin], column major */
+		float mv[16];
+		int32_t r;
+		for (r = 0; r < 3; ++r)
+		{
+			mv[0 + r] = d->rot[r * 3 + 0] * s;
+			mv[4 + r] = d->rot[r * 3 + 1] * s;
+			mv[8 + r] = d->rot[r * 3 + 2] * s;
+			mv[12 + r] = d->rot[r * 3 + 0] * g->offset[0] + d->rot[r * 3 + 1] * g->offset[1] + d->rot[r * 3 + 2] * g->offset[2] + d->origin[r];
+		}
+		mv[3] = mv[7] = mv[11] = 0.0f;
+		mv[15] = 1.0f;
+		glUniformMatrix4fv(glGetUniformLocation(g_carProg, "uModelView"), 1, GL_FALSE, mv);
+		{
+			/*
+			 * Camera space (metres, X right, Y up, Z forward) -> clip space, matching the game: the screen
+			 * position is center + scale * XY / Z in 640x480 units (mapped to the current clip window),
+			 * the depth is 1 - 1/Z.
+			 */
+			const float x0 = g_clipWindow[0], y0 = g_clipWindow[1], w = g_clipWindow[2] - g_clipWindow[0], h = g_clipWindow[3] - g_clipWindow[1];
+			const float sx = d->proj[0], sy = d->proj[1], cx = d->proj[2], cy = d->proj[3];
+			const float proj[16] = {
+				2.0f * sx / w, 0.0f, 0.0f, 0.0f,
+				0.0f, -2.0f * sy / h, 0.0f, 0.0f,
+				2.0f * (cx - x0) / w - 1.0f, 1.0f - 2.0f * (cy - y0) / h, 1.0f, 1.0f,
+				0.0f, 0.0f, -2.0f, 0.0f,
+			};
+			glUniformMatrix4fv(glGetUniformLocation(g_carProg, "uProj"), 1, GL_FALSE, proj);
+			/* Sun direction from the sky probe (screen position of the sun in the previous frame) */
+			glUniform4f(glGetUniformLocation(g_carProg, "uSunProj"), 640.0f / sx, 480.0f / sy, -cx / sx, -cy / sy);
+		}
+		/* Up and sun: car space up, sun high and slightly behind the camera */
+		glUniform3f(glGetUniformLocation(g_carProg, "uUp"), d->rot[1], d->rot[4], d->rot[7]);
+		glUniform3f(glGetUniformLocation(g_carProg, "uSun"), 0.3f + d->rot[1], 0.9f * d->rot[4] + 0.3f, -0.4f + d->rot[7]);
+		glDisable(GL_BLEND);
+		carDrawBatches(g->model, false);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glDepthMask(GL_FALSE);
+		carDrawBatches(g->model, true);
+		glDepthMask(GL_TRUE);
+	}
+	g_carDrawCount = 0;
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glDisableVertexAttribArray(1);
+	glDisableVertexAttribArray(2);
+	useGameProgram(true);
+	glUniform1f(g_uTextureEnabledLoc, g_textureEnabled);
+	glDepthMask(g_depthMask);
+}
+
+/* Game hook: the scene's polygons were drawn */
+REALIGN STDCALL void carModelsFlush()
+{
+	carModelsDraw();
+}

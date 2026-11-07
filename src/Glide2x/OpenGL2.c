@@ -47,6 +47,9 @@ static PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
 static PFNGLACTIVETEXTUREPROC p_glActiveTexture;
 static PFNGLUNIFORM2FPROC p_glUniform2f;
 static PFNGLUNIFORM4FPROC p_glUniform4f;
+static PFNGLGENBUFFERSPROC p_glGenBuffers;
+static PFNGLBINDBUFFERPROC p_glBindBuffer;
+static PFNGLBUFFERDATAPROC p_glBufferData;
 static PFNGLBINDATTRIBLOCATIONPROC p_glBindAttribLocation;
 static PFNGLDRAWBUFFERSPROC p_glDrawBuffers;
 static PFNGLBLITFRAMEBUFFERPROC p_glBlitFramebuffer;
@@ -54,6 +57,9 @@ static PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC p_glRenderbufferStorageMultisampl
 # define glActiveTexture p_glActiveTexture
 # define glUniform2f p_glUniform2f
 # define glUniform4f p_glUniform4f
+# define glGenBuffers p_glGenBuffers
+# define glBindBuffer p_glBindBuffer
+# define glBufferData p_glBufferData
 # define glBindAttribLocation p_glBindAttribLocation
 # define glDrawBuffers p_glDrawBuffers
 # define glBlitFramebuffer p_glBlitFramebuffer
@@ -352,6 +358,7 @@ static int32_t  g_framebufferBaseEdge;
 extern float widescreenScale;
 static float g_virtualWidth = 640.0f;
 static BOOL  g_fullWidthView = true;
+static float g_clipWindow[4] = {0.0f, 0.0f, 640.0f, 480.0f}; /* Current clip window in 640x480 game units */
 static BOOL  g_prevFrameHas3D;
 
 /* GLSL config */
@@ -382,6 +389,7 @@ static float g_clipRectUV[4];
 static float g_subViewRect[4];
 static BOOL  g_frameSubView;
 static float g_rainLevel; /* 0 - dry, 1 - raining (smoothed) */
+
 
 static BOOL checkShaderCompilation(GLuint shader)
 {
@@ -429,6 +437,8 @@ static void drawTriangles();
 #include "Textures.c"
 #ifdef GL2_ENHANCED
 # include "PostFX.c"
+static void useGameProgram(BOOL gameProgram);
+# include "CarModels.c"
 #endif
 
 static inline BOOL loadShaders()
@@ -786,6 +796,9 @@ static void createContext()
 	glActiveTexture = SDL_GL_GetProcAddress("glActiveTexture");
 	glUniform2f = SDL_GL_GetProcAddress("glUniform2f");
 	glUniform4f = SDL_GL_GetProcAddress("glUniform4f");
+	glGenBuffers = SDL_GL_GetProcAddress("glGenBuffers");
+	glBindBuffer = SDL_GL_GetProcAddress("glBindBuffer");
+	glBufferData = SDL_GL_GetProcAddress("glBufferData");
 	glBindAttribLocation = SDL_GL_GetProcAddress("glBindAttribLocation");
 	glDrawBuffers = SDL_GL_GetProcAddress("glDrawBuffers");
 	glBlitFramebuffer = SDL_GL_GetProcAddress("glBlitFramebuffer");
@@ -1065,6 +1078,10 @@ REALIGN STDCALL void grClipWindow(uint32_t minX, uint32_t minY, uint32_t maxX, u
 	float offsetX = (g_virtualWidth - 640.0f) * 0.5f;
 	float virtualMinX = minX + offsetX, virtualMaxX = maxX + offsetX;
 	g_fullWidthView = (minX == 0 && maxX >= 640);
+	g_clipWindow[0] = minX;
+	g_clipWindow[1] = minY;
+	g_clipWindow[2] = SDL_min(maxX, 640);
+	g_clipWindow[3] = maxY;
 	if (g_fullWidthView)
 	{
 		virtualMinX = 0.0f;
@@ -1141,6 +1158,7 @@ REALIGN STDCALL void grChromakeyValue(GrColor_t value)
 }
 REALIGN STDCALL void grBufferSwap(int swap_interval)
 {
+	carModelsDraw();
 // 	fprintf(stderr, "grBufferSwap: [%d]\n", g_trianglesCount);
 
 	drawTriangles();

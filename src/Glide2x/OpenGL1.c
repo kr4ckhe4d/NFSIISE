@@ -203,6 +203,17 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 	}
 	glEnd();
 }
+/* Car model replacement is only available in the OpenGL 2 renderer */
+int32_t carPartSkip;
+REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const int32_t *t)
+{
+}
+REALIGN STDCALL void carModelLoaded(const char *fileName, const uint8_t *geo)
+{
+}
+REALIGN STDCALL void carModelsFlush()
+{
+}
 REALIGN STDCALL void grDrawLine(const GrVertex *a, const GrVertex *b)
 {
 // 	printf("grDrawLine: [%d]\n", trianglesCount);

@@ -83,6 +83,7 @@ typedef struct
 	float haze;               /* Distance haze tinted by the sky (0 = off) */
 	float focalLength;        /* Game projection focal length in 640x480 pixels (used by SSAO) */
 	BOOL widescreen;          /* Hor+ widescreen: wider field of view on wide windows */
+	BOOL carModels;           /* Replacement car models from "<settings>/models/<car>/model.cmdl" */
 } GfxSettings;
 extern GfxSettings gfx;
 

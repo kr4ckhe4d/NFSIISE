@@ -72,7 +72,8 @@ GfxSettings gfx = {
 	0.6f,  /* sunShafts */
 	0.25f, /* haze */
 	320.0f, /* focalLength */
-	true   /* widescreen */
+	true,  /* widescreen */
+	true   /* carModels */
 };
 /* X projection scale applied by the game code to full-width 3D views (set by the renderer) */
 float widescreenScale = 1.0f;
@@ -401,7 +402,8 @@ static BOOL parseGfxSetting(const char *line)
 		parseGfxFloat(line, "SunShafts", &gfx.sunShafts, 0.0f, 2.0f) ||
 		parseGfxFloat(line, "Haze", &gfx.haze, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "FocalLength", &gfx.focalLength, 50.0f, 2000.0f) ||
-		parseGfxBool(line, "Widescreen", &gfx.widescreen);
+		parseGfxBool(line, "Widescreen", &gfx.widescreen) ||
+		parseGfxBool(line, "CarModels", &gfx.carModels);
 }
 
 #ifdef SWAP_WINDOW_AND_GL_THREAD

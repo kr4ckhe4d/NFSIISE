@@ -189,6 +189,22 @@ Every game texture is identified by a hash of its content, so replacement textur
    The script writes into `~/.nfs2se/textures` and skips already upscaled textures, so it can be re-run after dumping more.
 3. Run the game with `TextureReplace=1` (default). Textures are loaded from `~/.nfs2se/textures` or `textures` next to the game executable. File names are the texture hashes, e.g. `0123456789ABCDEF.png` (PNG, JPEG or TGA of any size; alpha is kept).
 
+### Car models (experimental)
+
+Cars can be replaced with detailed 3D models. The game still runs its own physics and animation; hooks in the game code pass each car's position and orientation to the renderer, which skips the original low-poly car and draws the model instead with physically based shading (paint with clear coat, glass, lights). The model is fitted to the size of the original car automatically and gets all post-processing effects, including reflections on wet roads.
+
+![Original McLaren F1 and the replacement model on Outback, and on the wet Proving Grounds at night](screenshots/readme/car_models.jpg)
+
+Models are loaded from `~/.nfs2se/models/<car>/model.cmdl`, where `<car>` is the game's car name: the name of its `.geo` file in `gamedata/sim/cardata/cardata.viv`, e.g. `mcf1` (McLaren F1), `ff50` (Ferrari F50), `f355` (Ferrari 355), `gt90` (Ford GT90), `lgt1` (Lotus GT1), `jagr` (Jaguar XJ220), `isde` (Isdera Commendatore), `nazc` (Italdesign Nazca), `cala` (Italdesign Cala), `espr` (Lotus Esprit), `idgo` (Ford Indigo) Any glTF/GLB car (facing +Z, Y up) can be converted with Blender:
+
+```sh
+blender -b --python tools/car-models/export_carmodel.py -- car.glb ~/.nfs2se/models/mcf1
+```
+
+For a quick test, `tools/car-models/install-carconcept.sh` downloads the Khronos [CarConcept](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept) sample model (CC BY 4.0, Eric Chadwick / Darmstadt Graphics Group) and installs it as the McLaren F1. `CarModels=0` disables replacement models.
+
+Current limitations: wheels don't turn or steer, the rear-view mirror is untested, and the model is drawn after the scene's polygons, so rain streaks and smoke in front of it are hidden behind it.
+
 ### Hotkeys
 
 * `Alt+P` - toggle the effects (compare with the original look),
