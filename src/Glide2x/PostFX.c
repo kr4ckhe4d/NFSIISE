@@ -105,6 +105,28 @@ static const char g_postVertexSrc[] =
 	"float linearDepth(float d) { return 1.0 / max(1.0 - d, 1e-7); }\n" \
 	"float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }\n"
 
+/*
+ * View-space mapping. A sub-view (rear-view mirror) is a separate camera centered on its own rectangle,
+ * with the vertical field of view of the main view. setView() selects the camera of a screen position.
+ */
+#define POST_VIEW \
+	"uniform vec2 uProj;\n"     /* (V / 2 / f, 240 / f) - view-space XY per unit depth at the screen edge */ \
+	"uniform vec4 uSub;\n"      /* Sub-view rectangle in UV (min, max) */ \
+	"uniform vec2 uProjSub;\n" \
+	"uniform float uSubOn;\n" \
+	"vec4 gR;\n" \
+	"vec2 gP;\n" \
+	"bool gSub;\n" \
+	"bool inSub(vec2 uv) { return uSubOn > 0.5 && all(greaterThanEqual(uv, uSub.xy)) && all(lessThan(uv, uSub.zw)); }\n" \
+	"void setView(vec2 uv)\n" \
+	"{\n" \
+	"	gSub = inSub(uv);\n" \
+	"	gR = gSub ? uSub : vec4(0.0, 0.0, 1.0, 1.0);\n" \
+	"	gP = gSub ? uProjSub : uProj;\n" \
+	"}\n" \
+	"vec3 viewPos(vec2 uv, float w) { return vec3(((uv - gR.xy) / (gR.zw - gR.xy) * 2.0 - 1.0) * gP * w, w); }\n" \
+	"vec2 project(vec3 p) { return gR.xy + (p.xy / (p.z * gP) * 0.5 + 0.5) * (gR.zw - gR.xy); }\n"
+
 /* AO input: half resolution linear depth, negative for overlay pixels, huge for the sky */
 static const char g_postAOPrepSrc[] =
 	POST_COMMON
@@ -121,15 +143,11 @@ static const char g_postAOPrepSrc[] =
 /* Screen-space ambient occlusion (normal-oriented hemisphere, spiral sampling) on the half resolution depth */
 static const char g_postAOSrc[] =
 	POST_COMMON
+	POST_VIEW
 	"uniform sampler2D uLin;\n"
-	"uniform vec2 uProj;\n"      /* (320 / f, 240 / f) - view-space XY per unit depth at screen edge */
 	"uniform vec2 uTexel;\n"     /* Half resolution texel size */
 	"uniform float uRadius;\n"
 	"uniform float uIntensity;\n"
-	"vec3 viewPos(vec2 uv, float w)\n"
-	"{\n"
-	"	return vec3((uv * 2.0 - 1.0) * uProj * w, w);\n"
-	"}\n"
 	"vec3 viewPosAt(vec2 uv)\n"
 	"{\n"
 	"	return viewPos(uv, abs(texture2D(uLin, uv).r));\n"
@@ -142,6 +160,7 @@ static const char g_postAOSrc[] =
 	"		gl_FragColor = vec4(1.0);\n"
 	"		return;\n"
 	"	}\n"
+	"	setView(vUV);\n"
 	"	vec3 P = viewPos(vUV, w0);\n"
 	"	vec3 pr = viewPosAt(vUV + vec2(uTexel.x, 0.0));\n"
 	"	vec3 pl = viewPosAt(vUV - vec2(uTexel.x, 0.0));\n"
@@ -153,7 +172,7 @@ static const char g_postAOSrc[] =
 	"	if (dot(N, P) > 0.0)\n"
 	"		N = -N;\n"
 	/* Projected radius in UV units, limited to keep texture fetches cache friendly */
-	"	vec2 radiusUV = uRadius / (uProj * 2.0 * P.z);\n"
+	"	vec2 radiusUV = uRadius / (gP * 2.0 * P.z) * (gR.zw - gR.xy);\n"
 	"	float maxR = max(radiusUV.x, radiusUV.y);\n"
 	"	if (maxR < uTexel.x)\n"
 	"	{\n"
@@ -273,14 +292,14 @@ static const char g_postSSRSrc[] =
 	"uniform sampler2D uLin;\n"
 	"uniform sampler2D uColor;\n"
 	"uniform sampler2D uSky;\n"
-	"uniform vec2 uProj;\n"
+	POST_VIEW
 	"uniform vec2 uTexel;\n"
 	"uniform float uWhite;\n"
 	"uniform float uStrength;\n"
 	"uniform float uWetness;\n"
-	"vec3 viewPos(vec2 uv, float w) { return vec3((uv * 2.0 - 1.0) * uProj * w, w); }\n"
 	"vec3 viewPosAt(vec2 uv) { return viewPos(uv, abs(texture2D(uLin, uv).r)); }\n"
-	"vec2 project(vec3 p) { return p.xy / (p.z * uProj) * 0.5 + 0.5; }\n"
+	/* Inside the current view (a ray from the main view must not pick up the mirror) */
+	"bool inView(vec2 uv) { return all(greaterThan(uv, gR.xy)) && all(lessThan(uv, gR.zw)) && (gSub || !inSub(uv)); }\n"
 	"vec3 sceneHDR(vec2 uv) { return expandHDR(toLinear(texture2D(uColor, uv).rgb), uWhite); }\n"
 	"void main()\n"
 	"{\n"
@@ -290,6 +309,7 @@ static const char g_postSSRSrc[] =
 	"		gl_FragColor = vec4(0.0);\n"
 	"		return;\n"
 	"	}\n"
+	"	setView(vUV);\n"
 	"	vec3 P = viewPos(vUV, w0);\n"
 	"	vec3 pr = viewPosAt(vUV + vec2(uTexel.x, 0.0));\n"
 	"	vec3 pl = viewPosAt(vUV - vec2(uTexel.x, 0.0));\n"
@@ -332,7 +352,7 @@ static const char g_postSSRSrc[] =
 	"		for (int k = 0; k < 6; ++k)\n"
 	"		{\n"
 	"			vec2 uv = vec2(uvInf.x, uvInf.y + float(k) * 0.03);\n"
-	"			if (all(greaterThan(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0))) && texture2D(uLin, uv).r >= 1e6)\n"
+	"			if (inView(uv) && texture2D(uLin, uv).r >= 1e6)\n"
 	"			{\n"
 	"				sum += sceneHDR(uv);\n"
 	"				n += 1.0;\n"
@@ -349,8 +369,8 @@ static const char g_postSSRSrc[] =
 	"		vec2 uv0 = vUV, uv1 = project(P1);\n"
 	"		vec2 d = uv1 - uv0;\n"
 	"		float sMax = 1.0;\n"
-	"		if (d.x > 0.0) sMax = min(sMax, (1.0 - uv0.x) / d.x); else if (d.x < 0.0) sMax = min(sMax, -uv0.x / d.x);\n"
-	"		if (d.y > 0.0) sMax = min(sMax, (1.0 - uv0.y) / d.y); else if (d.y < 0.0) sMax = min(sMax, -uv0.y / d.y);\n"
+	"		if (d.x > 0.0) sMax = min(sMax, (gR.z - uv0.x) / d.x); else if (d.x < 0.0) sMax = min(sMax, (gR.x - uv0.x) / d.x);\n"
+	"		if (d.y > 0.0) sMax = min(sMax, (gR.w - uv0.y) / d.y); else if (d.y < 0.0) sMax = min(sMax, (gR.y - uv0.y) / d.y);\n"
 	"		float iz0 = 1.0 / P.z, iz1 = 1.0 / P1.z;\n"
 	"		const int steps = 40;\n"
 	/* Ordered 4x4 jitter: averages out in the reflection blur (noise would leave per-row stripes) */
@@ -366,6 +386,8 @@ static const char g_postSSRSrc[] =
 	"			float s = sMin + (sMax - sMin) * t * t;\n"
 	"			vec2 uv = uv0 + d * s;\n"
 	"			float rayZ = 1.0 / mix(iz0, iz1, s);\n"
+	"			if (!inView(uv))\n"
+	"				break;\n"
 	"			float sz = texture2D(uLin, uv).r;\n"
 	"			float prevZ = 1.0 / mix(iz0, iz1, sPrev);\n"
 	"			if (sz > 0.0 && rayZ > sz && rayZ - sz < abs(rayZ - prevZ) + 0.02 * rayZ + 0.25)\n"
@@ -385,7 +407,8 @@ static const char g_postSSRSrc[] =
 	"				if (1.0 / mix(iz0, iz1, m) > sz) b = m; else a = m;\n"
 	"			}\n"
 	"			vec2 uvHit = uv0 + d * b;\n"
-	"			vec2 e = smoothstep(vec2(0.0), vec2(0.06), uvHit) * smoothstep(vec2(1.0), vec2(0.94), uvHit);\n"
+	"			vec2 lHit = (uvHit - gR.xy) / (gR.zw - gR.xy);\n"
+	"			vec2 e = smoothstep(vec2(0.0), vec2(0.06), lHit) * smoothstep(vec2(1.0), vec2(0.94), lHit);\n"
 	"			result = mix(env, sceneHDR(uvHit), e.x * e.y);\n"
 	"		}\n"
 	"	}\n"
@@ -803,6 +826,10 @@ static void postUniform1f(GLuint prog, const char *name, float v)
 {
 	glUniform1f(glGetUniformLocation(prog, name), v);
 }
+static void postUniform4f(GLuint prog, const char *name, float x, float y, float z, float w)
+{
+	glUniform4f(glGetUniformLocation(prog, name), x, y, z, w);
+}
 static void postUniform2f(GLuint prog, const char *name, float x, float y)
 {
 	glUniform2f(glGetUniformLocation(prog, name), x, y);
@@ -1132,6 +1159,17 @@ static void postResolve()
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+/* Main view projection, and the sub-view (rear-view mirror) drawn in this frame */
+static void postViewUniforms(GLuint prog, float projX, float projY)
+{
+	const float *r = g_subViewRect;
+	const float aspect = (r[2] - r[0]) * g_virtualWidth / ((r[3] - r[1]) * 480.0f + 1e-6f);
+	postUniform2f(prog, "uProj", projX, projY);
+	postUniform4f(prog, "uSub", r[0], r[1], r[2], r[3]);
+	postUniform2f(prog, "uProjSub", projY * aspect, projY);
+	postUniform1f(prog, "uSubOn", g_frameSubView ? 1.0f : 0.0f);
+}
+
 static void postEffects()
 {
 	const float white = 4.0f;
@@ -1178,7 +1216,7 @@ static void postEffects()
 		postUniform1i(g_post.ssrProg, "uLin", 0);
 		postUniform1i(g_post.ssrProg, "uColor", 1);
 		postUniform1i(g_post.ssrProg, "uSky", 2);
-		postUniform2f(g_post.ssrProg, "uProj", projX, projY);
+		postViewUniforms(g_post.ssrProg, projX, projY);
 		postUniform2f(g_post.ssrProg, "uTexel", 1.0f / g_post.aoLin.w, 1.0f / g_post.aoLin.h);
 		postUniform1f(g_post.ssrProg, "uWhite", whiteS);
 		postUniform1f(g_post.ssrProg, "uStrength", gfx.reflections);
@@ -1223,7 +1261,7 @@ static void postEffects()
 	{
 		glUseProgram(g_post.aoProg);
 		postUniform1i(g_post.aoProg, "uLin", 0);
-		postUniform2f(g_post.aoProg, "uProj", projX, projY);
+		postViewUniforms(g_post.aoProg, projX, projY);
 		postUniform2f(g_post.aoProg, "uTexel", 1.0f / g_post.aoLin.w, 1.0f / g_post.aoLin.h);
 		postUniform1f(g_post.aoProg, "uRadius", gfx.aoRadius);
 		postUniform1f(g_post.aoProg, "uIntensity", 3.0f * gfx.aoStrength);

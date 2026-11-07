@@ -518,7 +518,7 @@ static void savePNG(const char *path)
 	glReadPixels(0, 0, winWidth, winHeight, GL_RGBA, GL_UNSIGNED_BYTE, px);
 	for (y = 0; y < winHeight / 2; ++y)
 	{
-		uint8_t tmp[16384];
+		uint8_t tmp[65536];
 		memcpy(tmp, px + y * winWidth * 4, winWidth * 4);
 		memcpy(px + y * winWidth * 4, px + (winHeight - 1 - y) * winWidth * 4, winWidth * 4);
 		memcpy(px + (winHeight - 1 - y) * winWidth * 4, tmp, winWidth * 4);

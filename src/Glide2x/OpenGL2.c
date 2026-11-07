@@ -46,12 +46,14 @@ static PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
 # define GL2_ENHANCED
 static PFNGLACTIVETEXTUREPROC p_glActiveTexture;
 static PFNGLUNIFORM2FPROC p_glUniform2f;
+static PFNGLUNIFORM4FPROC p_glUniform4f;
 static PFNGLBINDATTRIBLOCATIONPROC p_glBindAttribLocation;
 static PFNGLDRAWBUFFERSPROC p_glDrawBuffers;
 static PFNGLBLITFRAMEBUFFERPROC p_glBlitFramebuffer;
 static PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC p_glRenderbufferStorageMultisample;
 # define glActiveTexture p_glActiveTexture
 # define glUniform2f p_glUniform2f
+# define glUniform4f p_glUniform4f
 # define glBindAttribLocation p_glBindAttribLocation
 # define glDrawBuffers p_glDrawBuffers
 # define glBlitFramebuffer p_glBlitFramebuffer
@@ -374,6 +376,11 @@ static BOOL g_frameHas3D;  /* 3D geometry was drawn in this frame */
 
 /* Rain detection: the game draws rain streaks as flat, additive world triangles */
 static uint32_t g_frameRainTriangles;
+
+/* Sub-view (rear-view mirror): its own camera, the post-processing needs its rectangle (UV, min/max) */
+static float g_clipRectUV[4];
+static float g_subViewRect[4];
+static BOOL  g_frameSubView;
 static float g_rainLevel; /* 0 - dry, 1 - raining (smoothed) */
 
 static BOOL checkShaderCompilation(GLuint shader)
@@ -778,6 +785,7 @@ static void createContext()
 
 	glActiveTexture = SDL_GL_GetProcAddress("glActiveTexture");
 	glUniform2f = SDL_GL_GetProcAddress("glUniform2f");
+	glUniform4f = SDL_GL_GetProcAddress("glUniform4f");
 	glBindAttribLocation = SDL_GL_GetProcAddress("glBindAttribLocation");
 	glDrawBuffers = SDL_GL_GetProcAddress("glDrawBuffers");
 	glBlitFramebuffer = SDL_GL_GetProcAddress("glBlitFramebuffer");
@@ -818,6 +826,7 @@ static void createContext()
 	ok &= !!glDeleteFramebuffers;
 	ok &= !!glActiveTexture;
 	ok &= !!glUniform2f;
+	ok &= !!glUniform4f;
 	ok &= !!glBindAttribLocation;
 	if (!ok)
 	{
@@ -1062,6 +1071,11 @@ REALIGN STDCALL void grClipWindow(uint32_t minX, uint32_t minY, uint32_t maxX, u
 		virtualMaxX = g_virtualWidth;
 	}
 
+	g_clipRectUV[0] = virtualMinX / g_virtualWidth;
+	g_clipRectUV[1] = 1.0f - maxY / 480.0f;
+	g_clipRectUV[2] = virtualMaxX / g_virtualWidth;
+	g_clipRectUV[3] = 1.0f - minY / 480.0f;
+
 	int32_t scaledMinX = virtualMinX * ratio;
 	int32_t scaledMinY = minY * ratio;
 	int32_t scaledMaxX = virtualMaxX * ratio + 0.5f;
@@ -1174,6 +1188,7 @@ REALIGN STDCALL void grBufferSwap(int swap_interval)
 	postPresent(xOffset, winHeight - scaledMaxY - yOffset, scaledMaxX, scaledMaxY, xOffset, yOffset, visibleWidth, visibleHeight, g_gammaValue, g_frameHas3D);
 	g_prevFrameHas3D = g_frameHas3D;
 	g_frameHas3D = false;
+	g_frameSubView = false;
 	g_seen3D = false;
 	glActiveTexture(GL_TEXTURE0);
 #else
@@ -1309,6 +1324,11 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 #ifdef GL2_ENHANCED
 	if (world && g_blendFuncDFactor == GL_ONE && a->oow == b->oow && b->oow == c->oow && a->oow < 0.999f)
 		++g_frameRainTriangles;
+	if (world && !g_fullWidthView && !g_frameSubView)
+	{
+		memcpy(g_subViewRect, g_clipRectUV, sizeof g_subViewRect);
+		g_frameSubView = true;
+	}
 #endif
 	const uint8_t mask = (world && beyondFogTable) ? world - 1 : world;
 	uint32_t i;
