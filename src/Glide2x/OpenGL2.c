@@ -41,9 +41,26 @@ static PFNGLFRAMEBUFFERRENDERBUFFERPROC glFramebufferRenderbuffer;
 static PFNGLCHECKFRAMEBUFFERSTATUSPROC glCheckFramebufferStatus;
 static PFNGLDELETERENDERBUFFERSPROC glDeleteRenderbuffers;
 static PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
+
+/* Graphics enhancements (desktop OpenGL only) */
+# define GL2_ENHANCED
+static PFNGLACTIVETEXTUREPROC p_glActiveTexture;
+static PFNGLUNIFORM2FPROC p_glUniform2f;
+static PFNGLBINDATTRIBLOCATIONPROC p_glBindAttribLocation;
+static PFNGLDRAWBUFFERSPROC p_glDrawBuffers;
+static PFNGLBLITFRAMEBUFFERPROC p_glBlitFramebuffer;
+static PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC p_glRenderbufferStorageMultisample;
+# define glActiveTexture p_glActiveTexture
+# define glUniform2f p_glUniform2f
+# define glBindAttribLocation p_glBindAttribLocation
+# define glDrawBuffers p_glDrawBuffers
+# define glBlitFramebuffer p_glBlitFramebuffer
+# define glRenderbufferStorageMultisample p_glRenderbufferStorageMultisample
 #endif
 
 #include <signal.h>
+#include <string.h>
+#include <time.h>
 
 BOOL contextError = false;
 BOOL shaderError = false;
@@ -90,60 +107,105 @@ static inline void matrixOrtho(float left, float right, float bottom, float top,
 
 const char g_vShaderSrc[] =
 #ifdef GLES2
-	"precision mediump float;"
+	"precision mediump float;\n"
 #else
-	"#version 110\n"
+	"#version 120\n"
+	"#define ENHANCED 1\n"
 #endif
 
-	"attribute vec4 aPosition;"
-	"attribute vec4 aTexCoord;"
-	"attribute vec4 aColor;"
-	"attribute float aFog;"
+	"attribute vec4 aPosition;\n"
+	"attribute vec4 aTexCoord;\n"
+	"attribute vec4 aColor;\n"
+	"attribute float aFog;\n"
 
-	"varying vec4 vTexCoord;"
-	"varying vec4 vColor;"
-	"varying float vFog;"
+	"varying vec4 vTexCoord;\n"
+	"varying vec4 vColor;\n"
+	"varying float vFog;\n"
 
-	"uniform mat4 uMatrix;"
+	"#ifdef ENHANCED\n"
+	"attribute float aMask;\n"
+	"varying float vMask;\n"
+	"varying float vOow;\n"
+	"#endif\n"
 
-	"void main()"
-	"{"
-		"vTexCoord = aTexCoord;"
-		"vColor = aColor;"
-		"vFog = aFog;"
-		"gl_Position = uMatrix * aPosition;"
-	"}"
+	"uniform mat4 uMatrix;\n"
+
+	"void main()\n"
+	"{\n"
+		"vTexCoord = aTexCoord;\n"
+		"vColor = aColor;\n"
+		"vFog = aFog;\n"
+	"#ifdef ENHANCED\n"
+		"vMask = aMask;\n"
+		"vOow = aPosition.z;\n"
+	"#endif\n"
+		"gl_Position = uMatrix * aPosition;\n"
+	"}\n"
 ;
 const char g_fShaderSrc[] =
 #ifdef GLES2
-	"precision mediump float;"
+	"precision mediump float;\n"
 #else
-	"#version 110\n"
+	"#version 120\n"
+	"#define ENHANCED 1\n"
 #endif
 
-	"varying vec4 vTexCoord;"
-	"varying vec4 vColor;"
-	"varying float vFog;"
+	"varying vec4 vTexCoord;\n"
+	"varying vec4 vColor;\n"
+	"varying float vFog;\n"
 
-	"uniform sampler2D uTextureSampler;"
-	"uniform float uTextureEnabled;"
-	"uniform float uFogEnabled;"
-	"uniform vec3 uFogColor;"
+	"uniform sampler2D uTextureSampler;\n"
+	"uniform float uTextureEnabled;\n"
+	"uniform float uFogEnabled;\n"
+	"uniform vec3 uFogColor;\n"
+	"uniform float uAlphaCutout;\n"
 
-	"void main()"
-	"{"
-		"vec4 texture = uTextureEnabled * texture2D(uTextureSampler, vTexCoord.st / vTexCoord.q);"
-		"vec4 ret = vColor * ((1.0 - uTextureEnabled) + texture);"
+	"#ifdef ENHANCED\n"
+	"varying float vMask;\n"
+	"varying float vOow;\n"
+	"uniform sampler2D uFogTable;\n"
+	"uniform float uPerPixelFog;\n"
+	"#endif\n"
 
-		"if (ret.a <= 16.0 / 255.0)"
-			"discard;"
+	"void main()\n"
+	"{\n"
+		"vec4 texture = texture2D(uTextureSampler, vTexCoord.st / vTexCoord.q);\n"
+		/* Cut-out textures (binary alpha): alpha test at the middle of the filtered edge, then opaque */
+		"if (uAlphaCutout > 0.5 && uTextureEnabled > 0.5)\n"
+		"{\n"
+			"if (texture.a < 0.35)\n"
+				"discard;\n"
+			"texture.a = 1.0;\n"
+		"}\n"
+		"vec4 ret = vColor * ((1.0 - uTextureEnabled) + uTextureEnabled * texture);\n"
 
-		"ret.rgb = mix(uFogColor, ret.rgb, 1.0 - (1.0 - vFog) * uFogEnabled);"
+		"if (ret.a <= 16.0 / 255.0)\n"
+			"discard;\n"
 
-		"gl_FragColor = ret;"
-	"}"
+		"float fog = 1.0 - vFog;\n"
+	"#ifdef ENHANCED\n"
+		/* Glide table fog evaluated per pixel: index = w = 1 / oow */
+		/* vMask == 254/255 marks triangles reaching beyond the fog table (sky): keep per-vertex fog for them */
+		"if (uPerPixelFog > 0.5 && vMask > 0.999)\n"
+		"{\n"
+			"float w = clamp(1.0 / max(vOow, 1e-6), 0.0, 65535.0);\n"
+			"float hi = floor(w / 256.0);\n"
+			"float lo = floor(w - hi * 256.0);\n"
+			"fog = texture2D(uFogTable, (vec2(lo, hi) + 0.5) / 256.0).r;\n"
+		"}\n"
+	"#endif\n"
+		"ret.rgb = mix(ret.rgb, uFogColor, fog * uFogEnabled);\n"
+
+	"#ifdef ENHANCED\n"
+		"gl_FragData[0] = ret;\n"
+		"gl_FragData[1] = vec4(step(0.5, vMask), 0.0, 0.0, ret.a);\n"
+	"#else\n"
+		"gl_FragColor = ret;\n"
+	"#endif\n"
+	"}\n"
 ;
 
+#ifndef GL2_ENHANCED
 const char g_vShaderDispSrc[] =
 #ifdef GLES2
 	"precision mediump float;"
@@ -181,6 +243,7 @@ const char g_fShaderDispSrc[] =
 		"gl_FragColor = texture;"
 	"}"
 ;
+#endif
 
 #define MaxTriangles 0x000400
 #define TextureMem   0x200000
@@ -201,6 +264,10 @@ typedef struct
 } FogCoord;
 typedef struct
 {
+	uint8_t vertex[3];
+} MaskValues;
+typedef struct
+{
 	struct
 	{
 		float s, t, r, q;
@@ -215,6 +282,7 @@ typedef struct
 } Vertices;
 static ColorValues g_colorValues[MaxTriangles];
 static FogCoord g_fogCoord[MaxTriangles];
+static MaskValues g_maskValues[MaxTriangles];
 static TextureCoord g_textureCoord[MaxTriangles];
 static Vertices g_vertices[MaxTriangles];
 
@@ -235,14 +303,17 @@ typedef struct
 {
 	void *data;
 	void *palette;
+	uint64_t hash;      /* Content hash of the GL texture currently used by this slot (0 = none) */
 	GrTextureFormat_t fmt;
 	uint32_t size;
 	uint32_t id;
+	uint8_t alphaMode;
+	uint8_t used;
 } TextureInfo;
 static TextureInfo g_textures[TextureMem >> 2];
 
 static uint8_t *g_lfb, g_textureMem[TextureMem], g_fogTable[0x10000];
-static uint32_t *g_palette, g_tmpTexture[0x400];
+static uint32_t *g_palette;
 static uint32_t g_trianglesCount;
 
 static SDL_GLContext g_glCtx;
@@ -253,27 +324,42 @@ extern SDL_Window *sdlWin;
 
 /* GLSL game */
 static GLuint g_vShader, g_fShader, g_shaderProgram;
-static GLint g_aPositionLoc, g_aTexCoordLoc, g_aColorLoc, g_aFogLoc, g_uMatrixLoc, g_uTextureEnabledLoc, g_uFogEnabledLoc, g_uFogColorLoc;
+static GLint g_aPositionLoc, g_aTexCoordLoc, g_aColorLoc, g_aFogLoc, g_aMaskLoc, g_uMatrixLoc, g_uTextureEnabledLoc, g_uFogEnabledLoc, g_uFogColorLoc, g_uAlphaCutoutLoc, g_uPerPixelFogLoc;
 
+#ifndef GL2_ENHANCED
 /* GLSL display */
 static GLuint g_vShaderDisp, g_fShaderDisp, g_shaderProgramDisp;
 static GLint g_aPositionLocDisp, g_aTexCoordLocDisp, g_uGammaLocDisp;
+#endif
 
 /* Framebuffer */
 static uint32_t g_framebuffer;
+#ifndef GL2_ENHANCED
 static uint32_t g_framebufferTexture;
 static uint32_t g_framebufferDepth;
+#endif
 static int32_t  g_framebufferHeight;
+static int32_t  g_framebufferBaseEdge;
 
 /* GLSL config */
-static BOOL g_textureEnabled;
-static BOOL g_fogEnabled;
+static float g_textureEnabled;
+static float g_fogEnabled;
 static float g_fogColor[3];
 static float g_gammaValue;
+static float g_alphaCutout;
 
 /* GL config */
 static BOOL g_depthMask;
-static GLenum g_blendFuncDFactor;
+static GLenum g_blendFuncDFactor = GL_ONE_MINUS_SRC_ALPHA;
+static GLuint g_boundTexture;
+
+/* Fog table texture (per-pixel fog) */
+static GLuint g_fogTableTexture;
+static BOOL g_fogTableDirty;
+
+/* World/overlay classification state */
+static BOOL g_seen3D;      /* 3D geometry was drawn since the last clip window change */
+static BOOL g_frameHas3D;  /* 3D geometry was drawn in this frame */
 
 static BOOL checkShaderCompilation(GLuint shader)
 {
@@ -316,6 +402,13 @@ static BOOL checkShaderProgram(GLuint program)
 	return true;
 }
 
+static void drawTriangles();
+
+#include "Textures.c"
+#ifdef GL2_ENHANCED
+# include "PostFX.c"
+#endif
+
 static inline BOOL loadShaders()
 {
 	{
@@ -351,17 +444,28 @@ static inline BOOL loadShaders()
 		g_aTexCoordLoc = glGetAttribLocation(g_shaderProgram, "aTexCoord");
 		g_aColorLoc = glGetAttribLocation(g_shaderProgram, "aColor");
 		g_aFogLoc = glGetAttribLocation(g_shaderProgram, "aFog");
+		g_aMaskLoc = glGetAttribLocation(g_shaderProgram, "aMask");
 		g_uMatrixLoc = glGetUniformLocation(g_shaderProgram, "uMatrix");
 
 		g_uTextureEnabledLoc = glGetUniformLocation(g_shaderProgram, "uTextureEnabled");
 		g_uFogEnabledLoc = glGetUniformLocation(g_shaderProgram, "uFogEnabled");
 		g_uFogColorLoc = glGetUniformLocation(g_shaderProgram, "uFogColor");
+		g_uAlphaCutoutLoc = glGetUniformLocation(g_shaderProgram, "uAlphaCutout");
+		g_uPerPixelFogLoc = glGetUniformLocation(g_shaderProgram, "uPerPixelFog");
 
 		glUseProgram(g_shaderProgram);
 		glUniform1i(glGetUniformLocation(g_shaderProgram, "uTextureSampler"), 0);
+#ifdef GL2_ENHANCED
+		glUniform1i(glGetUniformLocation(g_shaderProgram, "uFogTable"), 1);
+		glUniform1f(g_uPerPixelFogLoc, gfx.perPixelFog ? 1.0f : 0.0f);
+#endif
 		glUseProgram(0);
 	}
 
+#ifdef GL2_ENHANCED
+	if (!postInit())
+		return false;
+#else
 	{
 		const GLint vShaderLen = sizeof(g_vShaderDispSrc) - 1;
 		const GLint fShaderLen = sizeof(g_fShaderDispSrc) - 1;
@@ -400,12 +504,17 @@ static inline BOOL loadShaders()
 		glUniform1i(glGetUniformLocation(g_shaderProgramDisp, "uTextureSampler"), 0);
 		glUseProgram(0);
 	}
+#endif
 
 	return true;
 }
 
 static void destroyFrameBuffer()
 {
+#ifdef GL2_ENHANCED
+	postDestroyTargets();
+	g_framebuffer = 0;
+#else
 	if (g_framebufferDepth != 0)
 	{
 		glDeleteRenderbuffers(1, &g_framebufferDepth);
@@ -421,52 +530,113 @@ static void destroyFrameBuffer()
 		glDeleteFramebuffers(1, &g_framebuffer);
 		g_framebuffer = 0;
 	}
+#endif
 	g_framebufferHeight = 0;
+	g_framebufferBaseEdge = 0;
 }
 static void createFrameBuffer()
 {
 	int32_t shorterEdge = fixedFramebufferSize ? SDL_min(initialWinWidth, initialWinHeight) : SDL_min(winWidth, winHeight);
-	if (g_framebufferHeight == shorterEdge)
+	if (g_framebufferBaseEdge == shorterEdge)
 		return;
 
-	int32_t w = shorterEdge * 4 / 3;
-	int32_t h = shorterEdge;
-
-	destroyFrameBuffer();
-
-	glGenFramebuffers(1, &g_framebuffer);
-	glBindFramebuffer(GL_FRAMEBUFFER, g_framebuffer);
-
-	glGenTextures(1, &g_framebufferTexture);
-	glBindTexture(GL_TEXTURE_2D, g_framebufferTexture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (!fixedFramebufferSize || !framebufferLinearFiltering) ? GL_NEAREST : GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_framebufferTexture, 0);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	glGenRenderbuffers(1, &g_framebufferDepth);
-	glBindRenderbuffer(GL_RENDERBUFFER, g_framebufferDepth);
-#ifdef GLES2
-	if (strstr((const char *)glGetString(GL_EXTENSIONS), "GL_OES_depth24") != NULL)
-		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24_OES, w, h);
-	else
-		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, w, h);
-#else
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
-#endif
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, g_framebufferDepth);
-	glBindRenderbuffer(GL_RENDERBUFFER, 0);
-
-	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+#ifdef GL2_ENHANCED
 	{
-		framebufferError = true;
-		raise(SIGABRT);
-	}
+		GLint maxSize = 0, maxRbSize = 0;
+		int32_t w, h;
 
-	g_framebufferHeight = shorterEdge;
+		glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxSize);
+		glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxRbSize);
+		if (maxRbSize > 0 && maxRbSize < maxSize)
+			maxSize = maxRbSize;
+		if (maxSize <= 0)
+			maxSize = 4096;
+
+		h = (int32_t)(shorterEdge * gfx.renderScale + 0.5f);
+		if (h < 120)
+			h = 120;
+		if (h * 4 / 3 > maxSize)
+			h = maxSize * 3 / 4;
+		w = h * 4 / 3;
+
+		destroyFrameBuffer();
+		g_framebuffer = postCreateTargets(w, h);
+		g_framebufferHeight = h;
+		g_framebufferBaseEdge = shorterEdge;
+	}
+#else
+	{
+		int32_t w = shorterEdge * 4 / 3;
+		int32_t h = shorterEdge;
+
+		destroyFrameBuffer();
+
+		glGenFramebuffers(1, &g_framebuffer);
+		glBindFramebuffer(GL_FRAMEBUFFER, g_framebuffer);
+
+		glGenTextures(1, &g_framebufferTexture);
+		glBindTexture(GL_TEXTURE_2D, g_framebufferTexture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (!fixedFramebufferSize || !framebufferLinearFiltering) ? GL_NEAREST : GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_framebufferTexture, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		glGenRenderbuffers(1, &g_framebufferDepth);
+		glBindRenderbuffer(GL_RENDERBUFFER, g_framebufferDepth);
+#ifdef GLES2
+		if (strstr((const char *)glGetString(GL_EXTENSIONS), "GL_OES_depth24") != NULL)
+			glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24_OES, w, h);
+		else
+			glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, w, h);
+#else
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+#endif
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, g_framebufferDepth);
+		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		{
+			framebufferError = true;
+			raise(SIGABRT);
+		}
+
+		g_framebufferHeight = shorterEdge;
+		g_framebufferBaseEdge = shorterEdge;
+	}
+#endif
+}
+
+static void uploadFogTable()
+{
+#ifdef GL2_ENHANCED
+	if (!g_fogTableTexture)
+	{
+		glGenTextures(1, &g_fogTableTexture);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, g_fogTableTexture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		g_fogTableDirty = true;
+	}
+	else
+	{
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, g_fogTableTexture);
+	}
+	if (g_fogTableDirty)
+	{
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 256, 256, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, g_fogTable);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+		g_fogTableDirty = false;
+	}
+	glActiveTexture(GL_TEXTURE0);
+#endif
 }
 
 static void useGameProgram(BOOL gameProgram)
@@ -475,11 +645,17 @@ static void useGameProgram(BOOL gameProgram)
 	{
 		glEnable(GL_DEPTH_TEST);
 		glEnable(GL_BLEND);
+		glEnable(GL_SCISSOR_TEST);
+		glBlendFunc(GL_SRC_ALPHA, g_blendFuncDFactor);
 
 		glBindFramebuffer(GL_FRAMEBUFFER, g_framebuffer);
 
+#ifdef GL2_ENHANCED
+		glDisableVertexAttribArray(0);
+#else
 		glDisableVertexAttribArray(g_aPositionLocDisp);
 		glDisableVertexAttribArray(g_aTexCoordLocDisp);
+#endif
 
 		glUseProgram(g_shaderProgram);
 
@@ -487,11 +663,18 @@ static void useGameProgram(BOOL gameProgram)
 		glEnableVertexAttribArray(g_aTexCoordLoc);
 		glEnableVertexAttribArray(g_aColorLoc);
 		glEnableVertexAttribArray(g_aFogLoc);
+		if (g_aMaskLoc >= 0)
+			glEnableVertexAttribArray(g_aMaskLoc);
 
 		glVertexAttribPointer(g_aPositionLoc, 3, GL_FLOAT, GL_FALSE, 0, g_vertices);
 		glVertexAttribPointer(g_aTexCoordLoc, 4, GL_FLOAT, GL_FALSE, 0, g_textureCoord);
 		glVertexAttribPointer(g_aColorLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, g_colorValues);
 		glVertexAttribPointer(g_aFogLoc, 1, GL_UNSIGNED_BYTE, GL_TRUE, 0, g_fogCoord);
+		if (g_aMaskLoc >= 0)
+			glVertexAttribPointer(g_aMaskLoc, 1, GL_UNSIGNED_BYTE, GL_TRUE, 0, g_maskValues);
+
+		uploadFogTable();
+		glBindTexture(GL_TEXTURE_2D, g_boundTexture);
 	}
 	else
 	{
@@ -504,7 +687,14 @@ static void useGameProgram(BOOL gameProgram)
 		glDisableVertexAttribArray(g_aTexCoordLoc);
 		glDisableVertexAttribArray(g_aColorLoc);
 		glDisableVertexAttribArray(g_aFogLoc);
+		if (g_aMaskLoc >= 0)
+			glDisableVertexAttribArray(g_aMaskLoc);
 
+#ifdef GL2_ENHANCED
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, g_verticesDisp);
+		(void)g_textureCoordDisp;
+#else
 		glUseProgram(g_shaderProgramDisp);
 
 		glEnableVertexAttribArray(g_aPositionLocDisp);
@@ -512,6 +702,7 @@ static void useGameProgram(BOOL gameProgram)
 
 		glVertexAttribPointer(g_aPositionLocDisp, 2, GL_FLOAT, GL_FALSE, 0, g_verticesDisp);
 		glVertexAttribPointer(g_aTexCoordLocDisp, 2, GL_FLOAT, GL_FALSE, 0, g_textureCoordDisp);
+#endif
 	}
 }
 
@@ -558,6 +749,13 @@ static void createContext()
 	glDeleteFramebuffers = SDL_GL_GetProcAddress("glDeleteFramebuffers");
 	glDeleteRenderbuffers = SDL_GL_GetProcAddress("glDeleteRenderbuffers");
 
+	glActiveTexture = SDL_GL_GetProcAddress("glActiveTexture");
+	glUniform2f = SDL_GL_GetProcAddress("glUniform2f");
+	glBindAttribLocation = SDL_GL_GetProcAddress("glBindAttribLocation");
+	glDrawBuffers = SDL_GL_GetProcAddress("glDrawBuffers");
+	glBlitFramebuffer = SDL_GL_GetProcAddress("glBlitFramebuffer");
+	glRenderbufferStorageMultisample = SDL_GL_GetProcAddress("glRenderbufferStorageMultisample");
+
 	BOOL ok = true;
 	ok &= !!glGetShaderiv;
 	ok &= !!glGetProgramiv;
@@ -591,6 +789,9 @@ static void createContext()
 	ok &= !!glCheckFramebufferStatus;
 	ok &= !!glDeleteRenderbuffers;
 	ok &= !!glDeleteFramebuffers;
+	ok &= !!glActiveTexture;
+	ok &= !!glUniform2f;
+	ok &= !!glBindAttribLocation;
 	if (!ok)
 	{
 		contextError = true;
@@ -620,20 +821,32 @@ static void destroyContext()
 
 	destroyFrameBuffer();
 
+	texCacheClear();
 	for (i = 0; i < (TextureMem >> 2); ++i)
 	{
 		TextureInfo *ti = &g_textures[i];
-		if (ti->id != 0)
-			glDeleteTextures(1, &ti->id);
+		ti->id = 0;
+		ti->hash = 0;
+	}
+	g_boundTexture = 0;
+
+	if (g_fogTableTexture)
+	{
+		glDeleteTextures(1, &g_fogTableTexture);
+		g_fogTableTexture = 0;
 	}
 
 	glDeleteProgram(g_shaderProgram);
 	glDeleteShader(g_fShader);
 	glDeleteShader(g_vShader);
 
+#ifdef GL2_ENHANCED
+	postDestroy();
+#else
 	glDeleteProgram(g_shaderProgramDisp);
 	glDeleteShader(g_fShaderDisp);
 	glDeleteShader(g_vShaderDisp);
+#endif
 
 	SDL_GL_DeleteContext(g_glCtx);
 	g_glCtx = NULL;
@@ -641,43 +854,19 @@ static void destroyContext()
 	g_trianglesCount = 0;
 }
 
-static void setTextureFiltering()
-{
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linearFiltering ? GL_LINEAR : GL_NEAREST);
-
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-}
-
+/* (Re)creates the GL texture of a texture slot. Paletted textures are created later in grTexSource (palette is needed). */
 static void uploadTexture(TextureInfo *ti)
 {
-	BOOL newTexture = (ti->id == 0);
-
-	if (newTexture)
-		glGenTextures(1, &ti->id);
-
-	if (newTexture || ti->fmt != GR_TEXFMT_P_8)
-		glBindTexture(GL_TEXTURE_2D, ti->id);
-
-	if (newTexture)
-		setTextureFiltering();
-
-	switch (ti->fmt)
+	ti->used = true;
+	if (ti->fmt == GR_TEXFMT_P_8)
 	{
-		case GR_TEXFMT_P_8:
-			ti->palette = NULL;
-			break;
-		case GR_TEXFMT_RGB_565:
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, ti->size, ti->size, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, ti->data);
-			break;
-		case GR_TEXFMT_ARGB_1555:
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ti->size, ti->size, 0, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, ti->data);
-			break;
-		case GR_TEXFMT_ARGB_4444:
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ti->size, ti->size, 0, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, ti->data);
-			break;
+		ti->palette = NULL;
+		return;
 	}
+	texRelease(ti->hash);
+	ti->hash = 0;
+	ti->id = texAcquire(ti->data, ti->fmt, ti->size, NULL, &ti->hash, &ti->alphaMode);
+	g_boundTexture = ti->id;
 }
 
 static void recreateContext()
@@ -692,12 +881,12 @@ static void recreateContext()
 	for (i = 0; i < (TextureMem >> 2); ++i)
 	{
 		TextureInfo *ti = &g_textures[i];
-		if (ti->id == 0)
+		if (!ti->used)
 			continue;
-
-		ti->id = 0;
 		uploadTexture(ti);
 	}
+	glBindTexture(GL_TEXTURE_2D, 0);
+	g_boundTexture = 0;
 
 	// Restore config
 	{
@@ -708,21 +897,78 @@ static void recreateContext()
 		glUniform1f(g_uTextureEnabledLoc, g_textureEnabled);
 		glUniform1f(g_uFogEnabledLoc, g_fogEnabled);
 		glUniform3f(g_uFogColorLoc, g_fogColor[0], g_fogColor[1], g_fogColor[2]);
+		glUniform1f(g_uAlphaCutoutLoc, g_alphaCutout);
 		glUseProgram(0);
 
+#ifndef GL2_ENHANCED
 		glUseProgram(g_shaderProgramDisp);
 		glUniform1f(g_uGammaLocDisp, g_gammaValue);
 		glUseProgram(0);
+#endif
 	}
 }
 
-static inline void drawTriangles()
+static void drawTriangles()
 {
 	if (g_trianglesCount == 0)
 		return;
 
+#ifdef GL2_ENHANCED
+	/* The game may change the fog table between draws (e.g. sky vs. world) */
+	if (g_fogTableDirty && gfx.perPixelFog)
+		uploadFogTable();
+#endif
+
 	glDrawArrays(GL_TRIANGLES, 0, g_trianglesCount * 3);
 	g_trianglesCount = 0;
+}
+
+static inline void fogTableChanged()
+{
+	drawTriangles();
+	g_fogTableDirty = true;
+}
+
+/* Optional statistics of submitted geometry (NFS2SE_GFX_STATS=1), used to tune the classification */
+static int32_t g_statsEnabled = -1;
+static struct
+{
+	uint32_t count;
+	float oowMin, oowMax;
+	uint32_t depthMask, textured, additive;
+} g_stats[2][2];
+static void statsTriangle(const GrVertex *a, const GrVertex *b, const GrVertex *c)
+{
+	const BOOL fog = g_fogEnabled > 0.5f;
+	const BOOL flat = a->oow == b->oow && b->oow == c->oow;
+	float lo = SDL_min(a->oow, SDL_min(b->oow, c->oow)), hi = SDL_max(a->oow, SDL_max(b->oow, c->oow));
+	if (g_stats[fog][flat].count == 0)
+	{
+		g_stats[fog][flat].oowMin = lo;
+		g_stats[fog][flat].oowMax = hi;
+	}
+	g_stats[fog][flat].oowMin = SDL_min(g_stats[fog][flat].oowMin, lo);
+	g_stats[fog][flat].oowMax = SDL_max(g_stats[fog][flat].oowMax, hi);
+	g_stats[fog][flat].count++;
+	g_stats[fog][flat].depthMask += !!g_depthMask;
+	g_stats[fog][flat].textured += g_textureEnabled > 0.5f;
+	g_stats[fog][flat].additive += g_blendFuncDFactor == GL_ONE;
+}
+static void statsFrame()
+{
+	static uint32_t frame;
+	uint32_t fog, flat;
+	if (++frame % 120 != 0)
+	{
+		return;
+	}
+	for (fog = 0; fog < 2; ++fog)
+		for (flat = 0; flat < 2; ++flat)
+			if (g_stats[fog][flat].count)
+				fprintf(stderr, "stats fog=%u flat=%u: %u tris/120f oow=[%g, %g] depthWrite=%u textured=%u additive=%u\n",
+					fog, flat, g_stats[fog][flat].count, g_stats[fog][flat].oowMin, g_stats[fog][flat].oowMax,
+					g_stats[fog][flat].depthMask, g_stats[fog][flat].textured, g_stats[fog][flat].additive);
+	memset(g_stats, 0, sizeof g_stats);
 }
 
 /**/
@@ -800,6 +1046,22 @@ REALIGN STDCALL void grBufferClear(GrColor_t color, GrAlpha_t alpha, uint16_t de
 #endif
 
 	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+
+	/* A new view starts (e.g. rear-view mirror): its backdrop belongs to the world again */
+	g_seen3D = false;
+
+#ifdef GL2_ENHANCED
+	if (glDrawBuffers)
+	{
+		/* Cleared background belongs to the world (sky) */
+		GLenum maskBuffer = GL_COLOR_ATTACHMENT1;
+		GLenum buffers[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+		glDrawBuffers(1, &maskBuffer);
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		glDrawBuffers(2, buffers);
+	}
+#endif
 }
 REALIGN STDCALL void grChromakeyMode(GrChromakeyMode_t mode)
 {
@@ -817,13 +1079,16 @@ REALIGN STDCALL void grBufferSwap(int swap_interval)
 
 	drawTriangles();
 
-	useGameProgram(false);
+	if (g_statsEnabled > 0)
+		statsFrame();
 
 	GLint viewportSize[4] = {};
 	glGetIntegerv(GL_VIEWPORT, viewportSize);
 
 	GLint scissorBox[4] = {};
 	glGetIntegerv(GL_SCISSOR_BOX, scissorBox);
+
+	useGameProgram(false);
 
 	int32_t xOffset = 0, yOffset = 0;
 	int32_t visibleWidth = 0, visibleHeight = 0;
@@ -844,16 +1109,24 @@ REALIGN STDCALL void grBufferSwap(int swap_interval)
 		visibleHeight = 480 * heightRatio + 0.5f;
 	}
 
-	clearUnusedArea(xOffset, yOffset, visibleWidth, visibleHeight);
-
 	int32_t scaledMaxX = 640.0f * widthRatio  + 0.5f;
 	int32_t scaledMaxY = 480.0f * heightRatio + 0.5f;
+
+#ifdef GL2_ENHANCED
+	postPresent(xOffset, winHeight - scaledMaxY - yOffset, scaledMaxX, scaledMaxY, xOffset, yOffset, visibleWidth, visibleHeight, g_gammaValue, g_frameHas3D);
+	g_frameHas3D = false;
+	g_seen3D = false;
+	glActiveTexture(GL_TEXTURE0);
+#else
+	clearUnusedArea(xOffset, yOffset, visibleWidth, visibleHeight);
+
 	glViewport(xOffset, winHeight - scaledMaxY - yOffset, scaledMaxX, scaledMaxY);
 	glScissor (xOffset, winHeight - scaledMaxY - yOffset, scaledMaxX, scaledMaxY);
 
 	glBindTexture(GL_TEXTURE_2D, g_framebufferTexture);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
 	SDL_GL_SwapWindow(sdlWin);
 
@@ -912,10 +1185,38 @@ REALIGN STDCALL void grDitherMode(GrDitherMode_t mode)
 {
 // 	fprintf(stderr, "grDitherMode: %d\n", mode);
 }
+
+/*
+ * Classifies geometry for post-processing: 3D world (255) or 2D overlay such as HUD, menus and text (0).
+ * NFS2SE keeps table fog enabled for everything and draws all 2D elements flat at 1/w == 1.0,
+ * while 3D geometry never comes that close (1/w <= ~0.62 in races). Flat 1/w == 1 geometry drawn
+ * before any 3D geometry of a view (since frame start or buffer clear) is the sky backdrop (world),
+ * after it - HUD and other overlays.
+ */
+static inline uint8_t worldMask(const GrVertex *a, const GrVertex *b, const GrVertex *c)
+{
+	if (a->oow >= 0.999f && b->oow >= 0.999f && c->oow >= 0.999f)
+		return g_seen3D ? 0 : 255;
+	g_seen3D = g_frameHas3D = true;
+	return 255;
+}
+
 REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const GrVertex *c)
 {
+	if (g_statsEnabled < 0)
+		g_statsEnabled = getenv("NFS2SE_GFX_STATS") != NULL;
+	if (g_statsEnabled)
+		statsTriangle(a, b, c);
+
 // 	fprintf(stderr, "grDrawTriangle\n");
 	const GrVertex *grVertices[3] = {a, b, c};
+	/*
+	 * Per-vertex fog index is (uint16_t)w, which wraps around for w >= 65536 (e.g. the sky dome gets no fog).
+	 * The game's look depends on it, so such triangles keep per-vertex fog instead of the per-pixel table lookup.
+	 */
+	const BOOL beyondFogTable = a->oow < 1.0f / 65535.0f || b->oow < 1.0f / 65535.0f || c->oow < 1.0f / 65535.0f;
+	const uint8_t world = worldMask(a, b, c);
+	const uint8_t mask = (world && beyondFogTable) ? world - 1 : world;
 	uint32_t i;
 	for (i = 0; i < 3; ++i)
 	{
@@ -927,6 +1228,7 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 		g_colorValues[g_trianglesCount].vertex[i].a = grVertex->a;
 
 		g_fogCoord[g_trianglesCount].vertex[i] = 255 - g_fogTable[(uint16_t)(1.0f / grVertex->oow)];
+		g_maskValues[g_trianglesCount].vertex[i] = mask;
 
 		g_textureCoord[g_trianglesCount].vertex[i].s = grVertex->tmuvtx[0].sow / 256.0f;
 		g_textureCoord[g_trianglesCount].vertex[i].t = grVertex->tmuvtx[0].tow / 256.0f;
@@ -956,6 +1258,8 @@ REALIGN STDCALL void grDrawLine(const GrVertex *a, const GrVertex *b)
 		g_colorValues->vertex[i].b = grVertices[i]->b;
 		g_colorValues->vertex[i].a = grVertices[i]->a;
 
+		g_maskValues->vertex[i] = (grVertices[i]->oow >= 0.999f && g_seen3D) ? 0 : 255;
+
 		g_vertices->vertex[i].x = grVertices[i]->x - VertexSnap;
 		g_vertices->vertex[i].y = grVertices[i]->y - VertexSnap;
 		g_vertices->vertex[i].z = grVertices[i]->oow;
@@ -973,6 +1277,7 @@ REALIGN STDCALL void grFogColorValue(GrColor_t fogcolor)
 }
 REALIGN STDCALL void grFogMode(GrFogMode_t mode)
 {
+	drawTriangles();
 	switch (mode)
 	{
 		case GR_FOG_DISABLE:
@@ -983,6 +1288,10 @@ REALIGN STDCALL void grFogMode(GrFogMode_t mode)
 			break;
 	}
 	glUniform1f(g_uFogEnabledLoc, g_fogEnabled);
+#ifdef GL2_ENHANCED
+	if (g_fogEnabled > 0.5f && g_fogTableDirty)
+		uploadFogTable();
+#endif
 // 	fprintf(stderr, "grFogMode: %X\n", mode);
 }
 REALIGN STDCALL void grGammaCorrectionValue(float value)
@@ -992,9 +1301,11 @@ REALIGN STDCALL void grGammaCorrectionValue(float value)
 
 	g_gammaValue = value;
 
+#ifndef GL2_ENHANCED
 	useGameProgram(false);
 	glUniform1f(g_uGammaLocDisp, g_gammaValue);
 	useGameProgram(true);
+#endif
 }
 REALIGN STDCALL void grGlideInit(void)
 {
@@ -1059,10 +1370,9 @@ REALIGN STDCALL void grSstWinClose(void)
 REALIGN STDCALL BOOL grSstWinOpen(uint32_t hWnd, GrScreenResolution_t screen_resolution, GrScreenRefresh_t refresh_rate, GrColorFormat_t color_format, GrOriginLocation_t origin_location, int nColBuffers, int nAuxBuffers)
 {
 	createContext();
+	handleDpr();
 	createFrameBuffer();
 	useGameProgram(true);
-
-	handleDpr();
 
 	grClipWindow(0, 0, 640, 480);
 
@@ -1103,35 +1413,10 @@ REALIGN STDCALL void grTexDownloadMipMap(GrChipID_t tmu, uint32_t startAddress, 
 	ti->fmt = info->format;
 	ti->size = 256 >> info->largeLod;
 
-	uint16_t *dataIn  = (uint16_t *)info->data;
-	uint16_t *dataOut = (uint16_t *)ti->data;
-
 	drawTriangles();
 
-	// ARGB -> RGBA conversion or copy
-	uint32_t sqrSize = ti->size * ti->size, i;
-	switch (ti->fmt)
-	{
-		case GR_TEXFMT_ARGB_1555:
-		{
-			for (i = 0; i < sqrSize; ++i)
-			{
-				uint16_t value = dataIn[i];
-				dataOut[i] = (value << 1) | (value >> 15);
-			}
-			break;
-		}
-		case GR_TEXFMT_ARGB_4444:
-			for (i = 0; i < sqrSize; ++i)
-			{
-				uint16_t value = dataIn[i];
-				dataOut[i] = (value << 4) | (value >> 12);
-			}
-			break;
-		default:
-			memcpy(dataOut, dataIn, ti->size * ti->size * (ti->fmt == GR_TEXFMT_P_8 ? 1 : 2));
-			break;
-	}
+	/* Keep the original data, conversion to RGBA is done by the texture pipeline */
+	memcpy(ti->data, info->data, ti->size * ti->size * (ti->fmt == GR_TEXFMT_P_8 ? 1 : 2));
 
 	uploadTexture(ti);
 
@@ -1162,21 +1447,24 @@ REALIGN STDCALL void grTexMipMapMode(GrChipID_t tmu, GrMipMapMode_t mode, BOOL l
 REALIGN STDCALL void grTexSource(GrChipID_t tmu, uint32_t startAddress, uint32_t evenOdd, GrTexInfo *info)
 {
 	TextureInfo *ti = &g_textures[startAddress >> 2];
+	float alphaCutout;
 	drawTriangles();
-	glBindTexture(GL_TEXTURE_2D, ti->id);
-	if (info->format == GR_TEXFMT_P_8 && g_palette && ti->palette != g_palette)
+	if (info->format == GR_TEXFMT_P_8 && g_palette && ti->palette != g_palette && ti->data)
 	{
 		// Update only when palette or texture changes (let's assume every palette has different pointer)
 		// When texture changes, palette is NULL
-		uint8_t *data = ti->data;
-		uint32_t size = 256 >> info->largeLod;
-		uint32_t sqrSize = size * size, i;
-		for (i = 0; i < sqrSize; ++i)
-		{
-			uint32_t value = g_palette[data[i]];
-			g_tmpTexture[i] = ((value >> 16) & 0x000000FF) | ((value << 16) & 0x00FF0000) | (value & 0xFF00FF00);
-		}
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_tmpTexture);
+		texRelease(ti->hash);
+		ti->hash = 0;
+		ti->id = texAcquire(ti->data, GR_TEXFMT_P_8, 256 >> info->largeLod, g_palette, &ti->hash, &ti->alphaMode);
 		ti->palette = g_palette;
+	}
+	g_boundTexture = ti->id;
+	glBindTexture(GL_TEXTURE_2D, g_boundTexture);
+
+	alphaCutout = (ti->alphaMode == AlphaCutout) ? 1.0f : 0.0f;
+	if (alphaCutout != g_alphaCutout)
+	{
+		g_alphaCutout = alphaCutout;
+		glUniform1f(g_uAlphaCutoutLoc, g_alphaCutout);
 	}
 }

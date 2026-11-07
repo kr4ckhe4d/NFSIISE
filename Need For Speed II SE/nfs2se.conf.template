@@ -18,10 +18,11 @@
 #	 0 - VSync disabled
 #	 1 - VSync enabled (default)
 #	>1 - VSync enabled, limit the framerate
-#MSAA (Multisample antialiasing, OpenGL 1 only):
+#MSAA (Multisample antialiasing):
 #	0 - Don't change (default)
 #	1 - Disable MSAA
-#	2, 4, 8, 16 - Enable MSAA. If not supported, the game probably won't start.
+#	2, 4, 8, 16 - Enable MSAA. OpenGL 1: if not supported, the game probably won't start.
+#	              OpenGL 2: off-screen MSAA, clamped to what the GPU supports.
 #FixedRenderingSize:
 #	0 - Window size determines game rendering size (default)
 #	1 - Fixed game rendering size (value is specified in "WindowSize"):
@@ -36,6 +37,47 @@
 #LinearTextureFiltering:
 #	0 - Nearest texture filtering
 #	1 - Linear texture filtering (default)
+#Graphics enhancements (OpenGL 2 renderer on desktop; Alt+P toggles effects, Alt+S saves a screenshot,
+#Alt+M cycles debug views: world mask, ambient occlusion, depth, bloom):
+#RenderScale:
+#	Internal resolution multiplier, 1.0 - window resolution (default), 2.0 - 4x supersampling (0.5 - 4.0)
+#AnisotropicFiltering:
+#	0 - Off, 2/4/8/16 - Anisotropic texture filtering level (default: 16)
+#Mipmaps:
+#	Generate mipmaps for game textures, removes shimmering on distant textures (1 - default)
+#PerPixelFog:
+#	Evaluate the Glide fog table per pixel instead of per vertex (1 - default)
+#TextureReplace:
+#	Load HD textures from "textures" directory in the game or the settings directory (1 - default)
+#	File name is the texture hash shown in "TextureDump" output, e.g. textures/0123456789ABCDEF.png
+#TextureDump:
+#	Save every game texture as PNG into "texdump" in the settings directory (0 - default)
+#PostProcessing:
+#	Master switch for all effects below (1 - default)
+#AmbientOcclusion:
+#	Screen-space ambient occlusion strength, 0 - off (default: 1.0)
+#AmbientOcclusionRadius:
+#	SSAO radius in game units (~meters, default: 2.0)
+#Bloom:
+#	Bloom strength, 0 - off (default: 0.35)
+#BloomThreshold:
+#	Brightness above which bloom starts, in HDR units, 4.0 = white (default: 1.5)
+#ToneMapping:
+#	Filmic grading with the settings below (1 - default)
+#Exposure, Contrast, Saturation:
+#	Grading (defaults: 1.0, 1.08, 1.05)
+#Warmth:
+#	White balance, -1.0 (cold) to 1.0 (warm) (default: 0.0)
+#FXAA:
+#	Fast approximate anti-aliasing (1 - default)
+#Sharpen:
+#	Contrast adaptive sharpening, 0 - off (default: 0.35)
+#Vignette:
+#	Vignette strength, 0 - off (default: 0.2)
+#FilmGrain:
+#	Film grain strength, 0 - off (default)
+#FocalLength:
+#	Game projection focal length at 640x480, used to reconstruct geometry for SSAO (default: 320)
 #JoystickApplyDeadzone:
 #	Apply game default deadzone for joysticks
 #JoystickDisableAxesInMenu:
@@ -96,6 +138,27 @@ LinearSoundInterpolation=0
 Port1=1030
 Port2=1029
 Bcast=255.255.255.255
+RenderScale=1.0
+AnisotropicFiltering=16
+Mipmaps=1
+PerPixelFog=1
+TextureReplace=1
+TextureDump=0
+PostProcessing=1
+AmbientOcclusion=1.0
+AmbientOcclusionRadius=2.0
+Bloom=0.35
+BloomThreshold=1.5
+ToneMapping=1
+Exposure=1.0
+Contrast=1.08
+Saturation=1.05
+Warmth=0.0
+FXAA=1
+Sharpen=0.35
+Vignette=0.2
+FilmGrain=0.0
+FocalLength=320
 LinuxCOM1=/dev/ttyS0
 LinuxCOM2=/dev/ttyS1
 LinuxCOM3=/dev/ttyUSB0

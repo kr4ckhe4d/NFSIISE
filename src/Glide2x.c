@@ -5,6 +5,7 @@
 static inline void handleDpr();
 static inline BOOL clearUnusedArea(int32_t xOffset, int32_t yOffset, int32_t visibleWidth, int32_t visibleHeight);
 static inline void convertColor(GrColor_t color, uint8_t *alpha, float *r, float *g, float *b, float *a);
+static inline void fogTableChanged();
 
 #ifdef OPENGL1X
 	#include "Glide2x/OpenGL1.c"
@@ -86,6 +87,9 @@ REALIGN STDCALL void grFogTable(const GrFog_t ft[GR_FOG_TABLE_SIZE])
 	uint32_t i, j;
 
 	GrFog_t glideFogTable[GR_FOG_TABLE_SIZE + 1];
+
+	fogTableChanged();
+
 	memcpy(glideFogTable, ft, GR_FOG_TABLE_SIZE * sizeof(GrFog_t));
 	glideFogTable[GR_FOG_TABLE_SIZE] = 255;
 

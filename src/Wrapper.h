@@ -50,5 +50,40 @@
 typedef uint32_t (STDCALL *WindowProc)(MAYBE_THIS void *hWnd, uint32_t uMsg, uint32_t wParam, uint32_t lParam);
 
 char *convertFilePath(const char *srcPth, BOOL convToLower);
+const char *getSettingsDir(void);
+
+/* Graphics enhancements (OpenGL 2 renderer) */
+typedef struct
+{
+	float renderScale;        /* Internal resolution multiplier (supersampling) */
+	int32_t msaa;             /* Multisample anti-aliasing samples (0 = off) */
+	int32_t anisotropy;       /* Anisotropic filtering level (0/1 = off) */
+	BOOL mipmaps;             /* Generate mipmaps for game textures */
+	BOOL perPixelFog;         /* Evaluate the Glide fog table per pixel */
+	BOOL textureReplace;      /* Load HD textures from "textures" directories */
+	BOOL textureDump;         /* Dump game textures as PNG into ~/.nfs2se/texdump */
+
+	BOOL postProcessing;      /* Master switch for the effects below */
+	float aoStrength;         /* Screen-space ambient occlusion (0 = off) */
+	float aoRadius;           /* SSAO radius in game units */
+	float bloomStrength;      /* Bloom (0 = off) */
+	float bloomThreshold;
+	BOOL toneMapping;         /* Filmic tone mapping and grading */
+	float exposure;
+	float contrast;
+	float saturation;
+	float warmth;
+	BOOL fxaa;                /* Fast approximate anti-aliasing */
+	float sharpen;            /* Contrast adaptive sharpening (0 = off) */
+	float vignette;           /* Vignette strength (0 = off) */
+	float filmGrain;          /* Film grain strength (0 = off) */
+	float focalLength;        /* Game projection focal length in 640x480 pixels (used by SSAO) */
+} GfxSettings;
+extern GfxSettings gfx;
+
+/* Runtime toggles, set from the event thread and consumed by the renderer */
+extern volatile BOOL gfxPostToggleRequest;
+extern volatile BOOL gfxScreenshotRequest;
+extern volatile int32_t gfxDebugViewRequest;
 
 #endif // WRAPPER_H

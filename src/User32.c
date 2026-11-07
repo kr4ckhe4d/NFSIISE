@@ -141,11 +141,36 @@ REALIGN STDCALL BOOL GetMessageA_wrap(MSG *msg, void *hWnd, uint32_t wMsgFilterM
 						br = false;
 						break;
 					}
+#ifndef OPENGL1X
+					if (event.key.keysym.mod & KMOD_LALT)
+					{
+						/* Graphics enhancement hotkeys: Alt+P - toggle effects, Alt+S - screenshot, Alt+M - debug view */
+						SDL_Keycode hotkey = event.key.keysym.sym;
+						if (!event.key.repeat)
+						{
+							if (hotkey == SDLK_p)
+								gfxPostToggleRequest = true;
+							else if (hotkey == SDLK_s)
+								gfxScreenshotRequest = true;
+							else if (hotkey == SDLK_m)
+								gfxDebugViewRequest = 1;
+						}
+					}
+#endif
 					//no break
 				case SDL_KEYUP:
 				{
 					SDL_Scancode scancode = event.key.keysym.scancode;
 					SDL_Keycode sym = event.key.keysym.sym;
+
+#ifndef OPENGL1X
+					if ((event.key.keysym.mod & KMOD_LALT) && (sym == SDLK_p || sym == SDLK_s || sym == SDLK_m))
+					{
+						/* Don't pass graphics hotkeys to the game */
+						br = false;
+						break;
+					}
+#endif
 
 #ifdef __ANDROID__
 					if (sym == SDLK_AC_BACK)

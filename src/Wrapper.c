@@ -39,6 +39,40 @@ void SetBrightness(float val)
 
 static char *settingsDir = NULL;
 
+const char *getSettingsDir(void)
+{
+	return settingsDir;
+}
+
+GfxSettings gfx = {
+	1.0f,  /* renderScale */
+	0,     /* msaa */
+	16,    /* anisotropy */
+	true,  /* mipmaps */
+	true,  /* perPixelFog */
+	true,  /* textureReplace */
+	false, /* textureDump */
+
+	true,  /* postProcessing */
+	1.0f,  /* aoStrength */
+	2.0f,  /* aoRadius */
+	0.35f, /* bloomStrength */
+	1.5f,  /* bloomThreshold */
+	true,  /* toneMapping */
+	1.0f,  /* exposure */
+	1.08f, /* contrast */
+	1.05f, /* saturation */
+	0.0f,  /* warmth */
+	true,  /* fxaa */
+	0.35f, /* sharpen */
+	0.2f,  /* vignette */
+	0.0f,  /* filmGrain */
+	320.0f /* focalLength */
+};
+volatile BOOL gfxPostToggleRequest = false;
+volatile BOOL gfxScreenshotRequest = false;
+volatile int32_t gfxDebugViewRequest = -1;
+
 #ifndef WIN32
 static
 #endif
@@ -297,6 +331,57 @@ static void initializeSDL2()
 		fprintf(stderr, "SDL init failed: %s\n", SDL_GetError());
 }
 
+static BOOL parseGfxFloat(const char *line, const char *key, float *value, float minValue, float maxValue)
+{
+	size_t len = strlen(key);
+	if (strncasecmp(key, line, len) || line[len] != '=')
+		return false;
+	*value = SDL_strtod(line + len + 1, NULL);
+	if (*value < minValue)
+		*value = minValue;
+	else if (*value > maxValue)
+		*value = maxValue;
+	return true;
+}
+static BOOL parseGfxBool(const char *line, const char *key, BOOL *value)
+{
+	size_t len = strlen(key);
+	if (strncasecmp(key, line, len) || line[len] != '=')
+		return false;
+	*value = !!atoi(line + len + 1);
+	return true;
+}
+static BOOL parseGfxSetting(const char *line)
+{
+	float anisotropy;
+	if (parseGfxFloat(line, "AnisotropicFiltering", &anisotropy, 0.0f, 16.0f))
+	{
+		gfx.anisotropy = (int32_t)anisotropy;
+		return true;
+	}
+	return
+		parseGfxFloat(line, "RenderScale", &gfx.renderScale, 0.5f, 4.0f) ||
+		parseGfxBool(line, "Mipmaps", &gfx.mipmaps) ||
+		parseGfxBool(line, "PerPixelFog", &gfx.perPixelFog) ||
+		parseGfxBool(line, "TextureReplace", &gfx.textureReplace) ||
+		parseGfxBool(line, "TextureDump", &gfx.textureDump) ||
+		parseGfxBool(line, "PostProcessing", &gfx.postProcessing) ||
+		parseGfxFloat(line, "AmbientOcclusion", &gfx.aoStrength, 0.0f, 4.0f) ||
+		parseGfxFloat(line, "AmbientOcclusionRadius", &gfx.aoRadius, 0.01f, 1000.0f) ||
+		parseGfxFloat(line, "Bloom", &gfx.bloomStrength, 0.0f, 4.0f) ||
+		parseGfxFloat(line, "BloomThreshold", &gfx.bloomThreshold, 0.0f, 4.0f) ||
+		parseGfxBool(line, "ToneMapping", &gfx.toneMapping) ||
+		parseGfxFloat(line, "Exposure", &gfx.exposure, 0.1f, 8.0f) ||
+		parseGfxFloat(line, "Contrast", &gfx.contrast, 0.5f, 2.0f) ||
+		parseGfxFloat(line, "Saturation", &gfx.saturation, 0.0f, 2.0f) ||
+		parseGfxFloat(line, "Warmth", &gfx.warmth, -1.0f, 1.0f) ||
+		parseGfxBool(line, "FXAA", &gfx.fxaa) ||
+		parseGfxFloat(line, "Sharpen", &gfx.sharpen, 0.0f, 1.0f) ||
+		parseGfxFloat(line, "Vignette", &gfx.vignette, 0.0f, 1.0f) ||
+		parseGfxFloat(line, "FilmGrain", &gfx.filmGrain, 0.0f, 1.0f) ||
+		parseGfxFloat(line, "FocalLength", &gfx.focalLength, 50.0f, 2000.0f);
+}
+
 #ifdef SWAP_WINDOW_AND_GL_THREAD
 REALIGN
 #endif
@@ -332,12 +417,15 @@ void WrapperInit(void)
 #endif
 	if (homeDir && *homeDir)
 	{
-		static const char subdirsToCreate[5][10] = {
+		static const char subdirsToCreate[8][12] = {
 			"config",
 			"save",
 			"stats",
 			"stats/prh",
-			"tmptrk"
+			"tmptrk",
+			"textures",
+			"texdump",
+			"screenshots"
 		};
 		char *buffer = malloc(strlen(homeDir) + 100);
 		uint32_t pos, i;
@@ -352,7 +440,7 @@ void WrapperInit(void)
 
 		mkdir_wrap(buffer, 0755);
 		pos = strlen(buffer);
-		for (i = 0; i < 5; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			strcpy(buffer + pos, subdirsToCreate[i]);
 			mkdir_wrap(buffer, 0755);
@@ -446,14 +534,21 @@ void WrapperInit(void)
 				startInFullScreen = !!atoi(line + 18);
 			else if (!strncasecmp("VSync=", line, 6))
 				vSync = atoi(line + 6);
-#ifdef OPENGL1X
 			else if (!strncasecmp("MSAA=", line, 5))
 			{
+#ifdef OPENGL1X
 				msaa = atoi(line + 5);
 				if (msaa > 16 || (msaa & (msaa - 1)))
 					msaa = 0;
-			}
+#else
+				gfx.msaa = atoi(line + 5);
+				if (gfx.msaa > 16 || gfx.msaa < 2 || (gfx.msaa & (gfx.msaa - 1)))
+					gfx.msaa = 0;
 #endif
+			}
+			else if (parseGfxSetting(line))
+			{
+			}
 			else if (!strncasecmp("FixedRenderingSize=", line, 19))
 			{
 				int val = atoi(line + 19);

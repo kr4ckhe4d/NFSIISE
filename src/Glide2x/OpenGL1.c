@@ -48,6 +48,10 @@ static void setTextureFiltering()
 
 /**/
 
+static inline void fogTableChanged()
+{
+}
+
 REALIGN STDCALL void grAlphaBlendFunction(GrAlphaBlendFnc_t rgb_sf, GrAlphaBlendFnc_t rgb_df, GrAlphaBlendFnc_t alpha_sf, GrAlphaBlendFnc_t alpha_df)
 {
 	switch (rgb_df)

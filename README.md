@@ -119,6 +119,20 @@ sudo apt install gcc-multilib
   * place directory `Need For Speed II SE.pc` into your Batocera Linux directory `/userdata/roms/windows/`,
   * to update the game list in Batocera using your controller, press `START` and go to `GAME SETTINGS` → `UPDATE GAMELISTS`, the game is listed under `Windows` section and will be successfully emulated via Wine
 
+## Graphics enhancements (OpenGL 2):
+
+The desktop OpenGL 2 renderer can make the game look considerably more modern. Everything is configured in `nfs2se.conf` (see the "Graphics enhancements" section of the template) and enabled by default:
+
+* supersampling (`RenderScale`) and off-screen `MSAA`, FXAA and contrast adaptive sharpening,
+* mipmaps with anisotropic filtering (no more shimmering road textures), coverage-preserving mipmaps for cut-out textures (trees, fences),
+* per-pixel evaluation of the Glide fog table (correct aerial perspective on large polygons),
+* screen-space ambient occlusion, HDR bloom, filmic grading, vignette and optional film grain,
+* HD texture packs: dump textures with `TextureDump=1`, upscale them (e.g. `tools/hd-textures/upscale.sh` with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)) and they are loaded from `~/.nfs2se/textures` or `textures` next to the game.
+
+2D elements (menus, HUD, text) are detected and kept pixel-exact. Hotkeys: `Alt+P` - toggle effects (compare with the original look), `Alt+S` - screenshot into `~/.nfs2se/screenshots`, `Alt+M` - cycle debug views (world mask, ambient occlusion, depth, bloom).
+
+Renderer changes can be tested without game data: `tools/gfxtest/run.sh out.png [Key=Value ...]` renders a synthetic scene through the Glide API headless (Xvfb).
+
 ## What works:
 
 * Game controllers (reconnected game controllers should be the same),
