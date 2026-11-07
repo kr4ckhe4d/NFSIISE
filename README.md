@@ -163,6 +163,20 @@ On windows wider than 4:3 the game renders a wider horizontal field of view (Hor
 * `SunShafts` - light shafts radiating from the sun when a bright, compact sun is visible in the sky (overcast or evenly bright skies are ignored).
 * `Haze` - aerial perspective: distant geometry fades towards the average sky color.
 
+#### Reflections
+
+Rain on Proving Grounds: the road turns wet automatically and reflects the barrier, the flag and the light poles.
+
+![Wet road reflections on Proving Grounds, before and after](screenshots/readme/reflections_rain.jpg)
+
+Rain in the city: buildings, street lights and the low sun reflect in the wet street.
+
+![Wet street reflections on the city track](screenshots/readme/reflections_city.jpg)
+
+Dry track: no rain, so the asphalt keeps its texture with only a faint sheen towards the bright sky.
+
+![Dry road on Outback, before and after](screenshots/readme/reflections_dry.jpg)
+
 ### HD texture packs
 
 Every game texture is identified by a hash of its content, so replacement textures can be made once and loaded automatically:
