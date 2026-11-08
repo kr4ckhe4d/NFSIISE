@@ -1,6 +1,6 @@
 # NFSIISE remaster fork
 
-Read `docs/ai/README.md` first: it indexes the handoff notes (car model replacement, HD textures, game data formats,
+Read `ROADMAP.md` (progress tracking, keep it updated) and `docs/ai/README.md` first: it indexes the handoff notes (car model replacement, HD textures, game data formats,
 reverse-engineering facts and hook sites, renderer architecture, headless testing).
 
 Rules:

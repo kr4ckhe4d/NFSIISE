@@ -7,6 +7,8 @@ everything.
 
 ## Documents
 
+Progress is tracked in [ROADMAP.md](../../ROADMAP.md) at the repository root; update it with each milestone.
+
 | File | Contents |
 |---|---|
 | [car-models.md](car-models.md) | Replacing cars with detailed glTF models: pipeline, `.cmdl` format, hooks, fitting, wheels, lighting, adding a new car |
