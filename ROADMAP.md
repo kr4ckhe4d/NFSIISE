@@ -21,7 +21,7 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Keep the game's distant terrain (mountains) by blending the panorama in above the horizon
 - [x] Per-track sky selection and alignment of the panorama's sun with the game's sun
 - [x] Download/install script for a set of matching skies
-- [ ] Hide the game's sky gradient that still shows in the thin band right at the horizon (separate backdrop sky from terrain)
+- [x] Replace the game's whole sky gradient, keeping its horizon terrain (backdrop terrain textures have a transparent sky)
 - [ ] Tune per-track brightness on the real GPU/monitor (city tr03 is very bright towards the low sun)
 - [x] Use the sky for car lighting and reflections (image-based lighting) (`6967400`)
 - [x] Road SSR misses sample the panorama (sharp when wet, blurred when dry)

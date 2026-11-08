@@ -47,6 +47,7 @@ static struct
 	BOOL pending;
 	float camToWorld[16], proj[4];
 } g_skyView;
+static BOOL g_skyReplacing; /* The panorama was drawn in the current view: the game's sky gradient is skipped */
 
 /* Camera of the main (full width) view of the frame, for the post-processing */
 static struct
@@ -452,6 +453,7 @@ static BOOL skyAlign(const float camToWorld[16])
 REALIGN STDCALL void skyHook(const uint8_t *camera)
 {
 	g_skyView.pending = false;
+	g_skyReplacing = false;
 	if (!gfx.skies || !camera)
 		return;
 	if (g_sky.track != gfxCurrentTrack)
@@ -495,13 +497,15 @@ static void skyDrawPending()
 	glUniform4f(glGetUniformLocation(g_skyProg, "uClip"), g_clipWindow[0], g_clipWindow[1], g_clipWindow[2] - g_clipWindow[0], g_clipWindow[3] - g_clipWindow[1]);
 	glUniform4f(glGetUniformLocation(g_skyProg, "uProj"), g_skyView.proj[0], g_skyView.proj[1], g_skyView.proj[2], g_skyView.proj[3]);
 	glUniformMatrix4fv(glGetUniformLocation(g_skyProg, "uCam"), 1, GL_FALSE, g_skyView.camToWorld);
-	glUniform4f(glGetUniformLocation(g_skyProg, "uParams"), g_sky.yaw * (float)M_PI / 180.0f, g_sky.elevationMin, g_sky.blend[0], g_sky.blend[1]);
+	/* Opaque: the game's sky gradient is skipped, its terrain is drawn over the panorama afterwards */
+	glUniform4f(glGetUniformLocation(g_skyProg, "uParams"), g_sky.yaw * (float)M_PI / 180.0f, g_sky.elevationMin, -1000.0f, -999.0f);
 	glBindTexture(GL_TEXTURE_2D, g_sky.tex);
 	glDisable(GL_DEPTH_TEST);
 	glDepthMask(GL_FALSE);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	g_skyReplacing = true;
 
 	useGameProgram(true);
 	glUniform1f(g_uTextureEnabledLoc, g_textureEnabled);

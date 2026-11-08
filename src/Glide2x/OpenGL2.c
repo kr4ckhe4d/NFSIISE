@@ -372,6 +372,7 @@ static float g_alphaCutout;
 static BOOL g_depthMask;
 static GLenum g_blendFuncDFactor = GL_ONE_MINUS_SRC_ALPHA;
 static GLuint g_boundTexture;
+static uint8_t g_boundAlphaMode; /* AlphaOpaque, AlphaCutout or AlphaBlend (Textures.c) */
 
 /* Fog table texture (per-pixel fog) */
 static GLuint g_fogTableTexture;
@@ -1160,6 +1161,9 @@ REALIGN STDCALL void grChromakeyValue(GrColor_t value)
 REALIGN STDCALL void grBufferSwap(int swap_interval)
 {
 	carModelsDraw(false);
+#ifdef GL2_ENHANCED
+	g_skyReplacing = false;
+#endif
 // 	fprintf(stderr, "grBufferSwap: [%d]\n", g_trianglesCount);
 
 	drawTriangles();
@@ -1347,6 +1351,18 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 	 */
 	const BOOL beyondFogTable = a->oow < 1.0f / 65535.0f || b->oow < 1.0f / 65535.0f || c->oow < 1.0f / 65535.0f;
 	int32_t mapping;
+#ifdef GL2_ENHANCED
+	/*
+	 * Sky backdrop (flat, before the 3D geometry of a race view): with a sky panorama, it is drawn at the first
+	 * backdrop triangle and only the backdrop's terrain (textures with transparent sky) is kept over it.
+	 */
+	if (!g_seen3D && g_prevFrameHas3D && a->oow >= 0.999f && b->oow >= 0.999f && c->oow >= 0.999f)
+	{
+		skyDrawPending();
+		if (g_skyReplacing && (g_textureEnabled < 0.5f || g_boundAlphaMode == AlphaOpaque))
+			return;
+	}
+#endif
 	const uint8_t world = worldMask(a, b, c, &mapping);
 #ifdef GL2_ENHANCED
 	if (world && g_blendFuncDFactor == GL_ONE && a->oow == b->oow && b->oow == c->oow && a->oow < 0.999f)
@@ -1602,6 +1618,7 @@ REALIGN STDCALL void grTexSource(GrChipID_t tmu, uint32_t startAddress, uint32_t
 		ti->palette = g_palette;
 	}
 	g_boundTexture = ti->id;
+	g_boundAlphaMode = ti->alphaMode;
 	glBindTexture(GL_TEXTURE_2D, g_boundTexture);
 
 	alphaCutout = (ti->alphaMode == AlphaCutout) ? 1.0f : 0.0f;

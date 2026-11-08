@@ -191,7 +191,7 @@ Every game texture is identified by a hash of its content, so replacement textur
 
 ### Skies
 
-The game's low resolution sky can be replaced with high resolution panoramas (8K photographs of real skies). The panorama is drawn behind everything, turns with the camera and fades in just above the horizon, so the game's distant terrain stays. It is rotated so its sun is where the game's sun is (measured automatically in the first seconds on a track), and its brightness feeds bloom, sun shafts and reflections.
+The game's low resolution sky can be replaced with high resolution panoramas (8K photographs of real skies). The panorama is drawn behind everything and turns with the camera; it replaces the game's sky gradient completely while the game's distant terrain (hills, rocks, skyline) is kept in front of it. It is rotated so its sun is where the game's sun is (measured automatically in the first seconds on a track), and its brightness feeds bloom, sun shafts and reflections.
 
 ![Original and panorama sky on Outback, beach and Proving Grounds](screenshots/readme/skies.jpg)
 

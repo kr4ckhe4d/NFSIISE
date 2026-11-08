@@ -34,6 +34,13 @@ tr03 kloppenheim_01 (0.08), tr06 kloofendal_misty_morning (0.25, no auto yaw), t
 auto yaw). Use the `*_puresky` variants: sky only with a clean horizon, which blends over the game's terrain.
 
 ## Drawing
+The game's backdrop has two layers: an opaque sky gradient and terrain textures (mesas, hills, skyline) whose sky
+part is transparent. With a panorama, `grDrawTriangle` draws it (opaque) at the first backdrop triangle of a view
+(flat `oow >= 0.999` before any 3D, race frames only), then skips backdrop triangles that are untextured or use an
+opaque texture (`g_boundAlphaMode == AlphaOpaque`) and keeps the transparent terrain ones over it. While the sun is
+being aligned nothing is skipped (the game's sun must stay visible). `horizon_blend` is only used for the fallback
+(panorama drawn at the first 3D triangle when a view has no backdrop triangles).
+
 - Camera space direction of a pixel from the game's projection (`dword_4D5294`.. captured in the hook) and the clip
   window; world direction with the camera matrix (see reverse-engineering.md); azimuth `atan(x, z)`, elevation
   `asin(y)`; equirect lookup (no mipmaps: the panorama is magnified on screen, and mipmaps would seam at the wrap).
@@ -64,8 +71,7 @@ blurred copies for the SSR pass (units 3, 4). SSR rays that miss use the panoram
 Mirror pixels keep the screen search.
 
 ## Known issues / ideas
-- A thin band of the game's sky gradient remains right at the horizon where the backdrop has no terrain. Idea:
-  classify backdrop pixels as sky vs terrain (colour vs the game's sky gradient above) and blend per pixel.
+- A backdrop terrain texture that is fully opaque (no sky part) would be skipped like the gradient (not seen yet).
 - City (tr03) is very bright towards the low sun; brightness per track should be tuned on the real display.
 - Night tracks: the minimum ambient makes cars look flat; local lights (street lamps, headlights) would help.
 - The mirror view uses the same sky file; not checked visually.
