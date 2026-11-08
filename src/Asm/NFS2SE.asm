@@ -48,6 +48,7 @@ extern carPartHook
 extern carPartSkip
 extern carModelLoaded
 extern carModelsFlush
+extern skyHook
 global dword_4D5294
 global flt_4D5298
 global flt_4D529C
@@ -58200,6 +58201,17 @@ sub_42DA20: ;SUBROUTINE
 ;sub_42DA20 endp
 
 sub_42DAF0: ;SUBROUTINE
+	; Skies: the game draws its horizon (sky backdrop) for the camera in eax, then the renderer may draw a panorama
+	push eax
+	call sub_42DAF0_horizon
+	pushad
+	push dword [esp+20h]
+	call skyHook
+	popad
+	add esp, 4
+	ret
+
+sub_42DAF0_horizon:
 	push ebx
 	push ecx
 	push edx

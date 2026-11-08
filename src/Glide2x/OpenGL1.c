@@ -214,6 +214,9 @@ REALIGN STDCALL void carModelLoaded(const char *fileName, const uint8_t *geo)
 REALIGN STDCALL void carModelsFlush()
 {
 }
+REALIGN STDCALL void skyHook(const uint8_t *camera)
+{
+}
 REALIGN STDCALL void grDrawLine(const GrVertex *a, const GrVertex *b)
 {
 // 	printf("grDrawLine: [%d]\n", trianglesCount);

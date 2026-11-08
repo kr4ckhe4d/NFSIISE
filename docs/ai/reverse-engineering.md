@@ -13,6 +13,7 @@ callees often `ret N`. Calls from asm into C use `stdcall` with `REALIGN` (stack
 | `sub_47FCD0` start (`; Car models:`) | per car part: `pushad; push esi; push [esp+28h]; push edx; push eax; call carPartHook; popad; cmp [carPartSkip],0; jz draw; ret 0Ch` |
 | `loc_46E407` in the GEO loader `sub_46E270` | `carModelLoaded(&filename_on_stack, geo)` |
 | end of `sub_42A3C0` (render list) | `carModelsFlush()` |
+| `sub_42DAF0` (horizon, `hrzsku.c`) wrapped: original renamed `sub_42DAF0_horizon` | `skyHook(camera)` after the game queued its sky backdrop; `eax` = view camera, `esi` = 8-byte output buffer (must stay intact) |
 | `global dword_4D5294, flt_4D5298, flt_4D529C, flt_4D52A0` | projection constants exported to C |
 
 Pattern for adding a hook: `pushad` / push args / `call cHook` / `popad`; with `pushad` the original `[esp+4]` is at
@@ -32,6 +33,13 @@ stub in `src/Glide2x/OpenGL1.c` (the GL1 renderer is also linked in some builds)
 - The game swaps fog tables mid-frame.
 - Rear-view mirror: its own camera centred on its clip rectangle (game units ~x 486-636, y 40-110) with the main view's
   **vertical** field of view (measured from road geometry: ground slope ratio 56/390 = height ratio 70/480).
+- Sky backdrop: `sub_42DAF0` builds the horizon ring (17 points, `gRngCoordTop/Bottom`, transformed by `sub_45B840`
+  with the camera) and **queues** its polygons in the sorted render list (they are drawn first, being farthest), so
+  anything drawn in the hook itself is covered by the backdrop. The renderer draws the panorama at the first 3D
+  triangle of the view instead (`worldMask()` -> `skyDrawPending()`).
+- Track number: the wrapper sees the game open `gamedata\tracks\...\trNN.*` (`convertFilePath`, `gfxCurrentTrack`).
+  Location menu order -> track: 0 tr00 Proving Grounds, 1 tr02 Outback, 2 tr04 beach, 3 tr05, 4 tr03 city,
+  5 tr06 cliffs, 6 tr07 market (7 wraps to tr00; tr08 not reachable from a fresh profile).
 - Rain: drawn as flat (all three `oow` equal, < 0.999) additive (`dfactor == GL_ONE`) world triangles, 150-280 per
   frame on rainy tracks (Proving Grounds, city), none on dry ones. The renderer counts them (`g_frameRainTriangles`,
   threshold 30) for automatic wetness. Candidate weather globals `dword_512208/5122B0/51220C` turned out not to be it.
@@ -45,7 +53,8 @@ Car render object (`esi` in `sub_475380`, the per-object part loop):
 +0x8C  i32 part count
 +0x90  part pointers[]     (GEO parts of the car)
 ```
-Camera (`edi` in `sub_475380`): `+0x08` position[3], `+0x44` matrix[9]. Per part the game computes
+Camera (`edi` in `sub_475380`, `eax` of `sub_42DAF0`): `+0x08` position[3] (16.16 metres), `+0x44` matrix[9] (16.16,
+world -> camera with row vectors: `cam = world * C`, so `world_i = sum_j cam_j * C[i][j]`). World Y is up. Per part the game computes
 `relative = object.pos - camera.pos` -> camera space (`sub_480720`), `M = object.matrix * camera.matrix`
 (`sub_49E840`) and calls `sub_47FCD0(eax = part, edx = &M, ebx, ecx, stack: &cameraSpaceTranslation, lod, ...)`.
 

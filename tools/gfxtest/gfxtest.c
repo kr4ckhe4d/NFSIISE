@@ -30,11 +30,12 @@ float dpr = 1.0f;
 #ifdef NEW_RENDERER
 GfxSettings gfx = {
 	1.0f, 0, 16, true, true, true, false,
-	true, 1.0f, 2.0f, 0.35f, 1.5f, true, 1.0f, 1.08f, 1.05f, 0.0f, true, 0.35f, 0.2f, 0.0f, 1.0f, -1.0f, 0.6f, 0.25f, 320.0f, true, true
+	true, 1.0f, 2.0f, 0.35f, 1.5f, true, 1.0f, 1.08f, 1.05f, 0.0f, true, 0.35f, 0.2f, 0.0f, 1.0f, -1.0f, 0.6f, 0.25f, 320.0f, true, true, true
 };
 float widescreenScale = 1.0f;
 /* Game projection globals normally provided by the game code (used by the car model renderer) */
 float dword_4D5294 = 320.0f, flt_4D5298 = -320.0f, flt_4D529C = 320.0f, flt_4D52A0 = 240.0f;
+int32_t gfxCurrentTrack = -1;
 volatile BOOL gfxPostToggleRequest = false;
 volatile BOOL gfxScreenshotRequest = false;
 volatile int32_t gfxDebugViewRequest = -1;

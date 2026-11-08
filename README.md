@@ -189,6 +189,14 @@ Every game texture is identified by a hash of its content, so replacement textur
    The script writes into `~/.nfs2se/textures` and skips already upscaled textures, so it can be re-run after dumping more.
 3. Run the game with `TextureReplace=1` (default). Textures are loaded from `~/.nfs2se/textures` or `textures` next to the game executable. File names are the texture hashes, e.g. `0123456789ABCDEF.png` (PNG, JPEG or TGA of any size; alpha is kept).
 
+### Skies
+
+The game's low resolution sky can be replaced with high resolution panoramas (8K photographs of real skies). The panorama is drawn behind everything, turns with the camera and fades in just above the horizon, so the game's distant terrain stays. It is rotated so its sun is where the game's sun is (measured automatically in the first seconds on a track), and its brightness feeds bloom, sun shafts and reflections.
+
+![Original and panorama sky on Outback, beach and Proving Grounds](screenshots/readme/skies.jpg)
+
+`tools/skies/install-skies.sh` downloads a matching set of public domain (CC0) skies from [Poly Haven](https://polyhaven.com/hdris) for every track and converts them with Blender into `~/.nfs2se/skies/trNN.jpg` + `trNN.txt`. Any equirectangular HDR can be used: `blender -b --python tools/skies/make_sky.py -- sky.hdr ~/.nfs2se/skies/tr02 --brightness 0.2` (see the script for options; `trNN.txt` can be edited afterwards). `Skies=0` disables them.
+
 ### Car models (experimental)
 
 Cars can be replaced with detailed 3D models. The game still runs its own physics and animation; hooks in the game code pass each car's position and orientation to the renderer, which skips the original low-poly car and draws the model instead with physically based shading (paint with clear coat, glass, lights). The model is fitted to the size of the original car automatically and gets all post-processing effects, including reflections on wet roads.

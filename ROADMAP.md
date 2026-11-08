@@ -14,13 +14,16 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Handoff docs and reusable test/format tools (`d96ff68`)
 
 ## 1. Skies and image-based lighting `[~]`
-- [ ] Find where the game draws the sky backdrop and where the camera orientation is available every frame
-- [ ] Detect the current track
-- [ ] Draw a high-resolution panorama (Poly Haven CC0 HDRIs) instead of the backdrop, oriented by the camera
-- [ ] Keep the game's distant terrain (mountains) by blending the panorama in above the horizon
-- [ ] Per-track sky selection and alignment of the panorama's sun with the game's sun
-- [ ] Download/install script for a set of matching skies
+- [x] Find where the game draws the sky backdrop and where the camera orientation is available every frame
+- [x] Detect the current track
+- [x] Draw a high-resolution panorama (Poly Haven CC0 HDRIs) instead of the backdrop, oriented by the camera
+- [x] Keep the game's distant terrain (mountains) by blending the panorama in above the horizon
+- [x] Per-track sky selection and alignment of the panorama's sun with the game's sun
+- [x] Download/install script for a set of matching skies
+- [ ] Hide the game's sky gradient that still shows in the thin band right at the horizon (separate backdrop sky from terrain)
+- [ ] Tune per-track brightness on the real GPU/monitor (city tr03 is very bright towards the low sun)
 - [ ] Use the sky for car lighting and reflections (image-based lighting) and for the road's sky reflections
+- [ ] Sky of track tr05 (tunnel start) and the bonus track tr08 not checked
 
 ## 2. Car polish `[ ]`
 - [ ] Reflections of the scene in car paint and glass

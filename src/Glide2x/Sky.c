@@ -1,0 +1,324 @@
+// SPDX-License-Identifier: MIT
+
+/*
+ * High resolution skies.
+ *
+ * The game draws its sky as a low resolution ring around the camera (horizon backdrop, "hrzsku.c"). A hook after
+ * that (skyHook, wrapping sub_42DAF0) gets the view's camera; when "<settings>/skies/trNN.txt" exists for the
+ * current track, a panorama (equirectangular, upper part only) is drawn over the backdrop before any 3D geometry,
+ * so everything else is drawn over it as usual. The hook only captures the camera: the game queues the backdrop in
+ * its sorted polygon list, so the panorama is drawn when the first 3D triangle of the view arrives (worldMask()). It fades in above the horizon, which keeps the game's distant
+ * terrain (mountains, skyline) from the backdrop.
+ *
+ * The panorama is rotated so its sun matches the game's: while the game's own sun is visible during the first
+ * seconds on a track (found by the post-processing sky probe), the panorama isn't drawn and the offset between
+ * both suns is measured. "yaw" in the sky file is used when the game's sun isn't seen.
+ *
+ * Sky file (key=value): image=<file in the same directory>, elevation_min=<degrees at the bottom row>,
+ * yaw=<degrees>, sun_azimuth/sun_elevation=<sun in the image, degrees>, horizon_blend=<from> <to> (degrees),
+ * auto_yaw=0/1. Made by tools/skies/make_sky.py.
+ *
+ * This file is included from OpenGL2.c.
+ */
+
+typedef struct
+{
+	int32_t track;          /* Track the sky belongs to, -2 = none loaded yet */
+	GLuint tex;
+	float elevationMin;     /* Degrees */
+	float yaw, sunAzimuth, sunElevation, blend[2];
+	BOOL autoYaw;
+	/* Sun alignment */
+	uint32_t startTicks;
+	float measuredSum, measuredCount;
+	BOOL aligned;
+} SkyState;
+
+static SkyState g_sky = {-2};
+
+/* Captured by skyHook() for the view being drawn */
+static struct
+{
+	BOOL pending;
+	float camToWorld[16], proj[4];
+} g_skyView;
+static GLuint g_skyProg;
+static BOOL g_skyProgFailed;
+
+static const char g_skyVertexSrc[] =
+	"#version 120\n"
+	"attribute vec2 aPos;\n"
+	"varying vec2 vNdc;\n"
+	"void main()\n"
+	"{\n"
+	"	vNdc = aPos;\n"
+	"	gl_Position = vec4(aPos, 0.0, 1.0);\n"
+	"}\n"
+;
+
+static const char g_skyFragmentSrc[] =
+	"#version 120\n"
+	"varying vec2 vNdc;\n"
+	"uniform sampler2D uSkyTex;\n"
+	"uniform vec4 uClip;\n"       /* Clip window in game units: x, y, width, height */
+	"uniform vec4 uProj;\n"       /* Game projection: scale X, scale Y, center X, center Y */
+	"uniform mat4 uCam;\n"        /* Camera space -> world directions */
+	"uniform vec4 uParams;\n"     /* yaw (radians), elevation_min (degrees), blend from, blend to (degrees) */
+	"void main()\n"
+	"{\n"
+	"	vec2 g = vec2(uClip.x + (vNdc.x * 0.5 + 0.5) * uClip.z, uClip.y + (0.5 - vNdc.y * 0.5) * uClip.w);\n"
+	"	vec3 d = normalize((uCam * vec4((g.x - uProj.z) / uProj.x, (g.y - uProj.w) / uProj.y, 1.0, 0.0)).xyz);\n"
+	"	float az = atan(d.x, d.z) + uParams.x;\n"
+	"	float el = degrees(asin(clamp(d.y, -1.0, 1.0)));\n"
+	"	float u = fract(az / 6.2831853 + 0.5);\n"
+	"	float v = (90.0 - el) / (90.0 - uParams.y);\n"
+	"	vec3 c = texture2D(uSkyTex, vec2(u, min(v, 0.999))).rgb;\n"
+	"	float a = smoothstep(uParams.z, uParams.w, el);\n"
+	"	gl_FragData[0] = vec4(c, a);\n"
+	"	gl_FragData[1] = vec4(1.0, 0.0, 0.0, a);\n"
+	"}\n"
+;
+
+static BOOL skyCreateProgram()
+{
+	const GLchar *vsrc = g_skyVertexSrc, *fsrc = g_skyFragmentSrc;
+	GLuint vs, fs;
+	if (g_skyProg || g_skyProgFailed)
+		return g_skyProg != 0;
+	g_skyProgFailed = true;
+	vs = glCreateShader(GL_VERTEX_SHADER);
+	fs = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(vs, 1, &vsrc, NULL);
+	glShaderSource(fs, 1, &fsrc, NULL);
+	glCompileShader(vs);
+	glCompileShader(fs);
+	if (!checkShaderCompilation(vs) || !checkShaderCompilation(fs))
+	{
+		fprintf(stderr, "Skies: cannot compile shaders\n");
+		glDeleteShader(vs);
+		glDeleteShader(fs);
+		return false;
+	}
+	g_skyProg = glCreateProgram();
+	glAttachShader(g_skyProg, vs);
+	glAttachShader(g_skyProg, fs);
+	glBindAttribLocation(g_skyProg, 0, "aPos");
+	glLinkProgram(g_skyProg);
+	glDeleteShader(vs);
+	glDeleteShader(fs);
+	if (!checkShaderProgram(g_skyProg))
+	{
+		glDeleteProgram(g_skyProg);
+		g_skyProg = 0;
+		return false;
+	}
+	g_skyProgFailed = false;
+	return true;
+}
+
+static void skyUnload()
+{
+	if (g_sky.tex)
+		glDeleteTextures(1, &g_sky.tex);
+	g_sky.tex = 0;
+}
+
+/* Loads "<settings>/skies/trNN.txt" and its image for the track */
+static void skyLoad(int32_t track)
+{
+	char path[1024], line[512], image[256] = "";
+	FILE *f;
+	skyUnload();
+	memset(&g_sky, 0, sizeof g_sky);
+	g_sky.track = track;
+	g_sky.elevationMin = -8.0f;
+	g_sky.blend[0] = 1.0f;
+	g_sky.blend[1] = 6.0f;
+	g_sky.autoYaw = true;
+	if (track < 0 || !getSettingsDir())
+		return;
+	snprintf(path, sizeof path, "%s/skies/tr%02d.txt", getSettingsDir(), track);
+	f = fopen(path, "r");
+	if (!f)
+		return;
+	while (fgets(line, sizeof line, f))
+	{
+		char *v = strchr(line, '=');
+		if (!v)
+			continue;
+		*v++ = '\0';
+		v[strcspn(v, "\r\n")] = '\0';
+		if (!strcmp(line, "image"))
+			snprintf(image, sizeof image, "%s", v);
+		else if (!strcmp(line, "elevation_min"))
+			g_sky.elevationMin = atof(v);
+		else if (!strcmp(line, "yaw"))
+			g_sky.yaw = atof(v);
+		else if (!strcmp(line, "sun_azimuth"))
+			g_sky.sunAzimuth = atof(v);
+		else if (!strcmp(line, "sun_elevation"))
+			g_sky.sunElevation = atof(v);
+		else if (!strcmp(line, "horizon_blend"))
+			sscanf(v, "%f %f", &g_sky.blend[0], &g_sky.blend[1]);
+		else if (!strcmp(line, "auto_yaw"))
+			g_sky.autoYaw = atoi(v) != 0;
+	}
+	fclose(f);
+	if (image[0])
+	{
+		int32_t w, h, comp;
+		uint8_t *pixels;
+		snprintf(path, sizeof path, "%s/skies/%s", getSettingsDir(), image);
+		pixels = stbi_load(path, &w, &h, &comp, 4);
+		if (pixels)
+		{
+			while (w > g_maxTextureSize || h > g_maxTextureSize)
+			{
+				int32_t nw = SDL_max(w / 2, 1), nh = SDL_max(h / 2, 1);
+				uint8_t *smaller = (uint8_t *)malloc((size_t)nw * nh * 4);
+				if (!smaller)
+					break;
+				texDownsample(pixels, w, h, smaller, nw, nh);
+				stbi_image_free(pixels);
+				pixels = smaller;
+				w = nw;
+				h = nh;
+			}
+			glGenTextures(1, &g_sky.tex);
+			glBindTexture(GL_TEXTURE_2D, g_sky.tex);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+			stbi_image_free(pixels);
+			glBindTexture(GL_TEXTURE_2D, g_boundTexture);
+			fprintf(stderr, "Sky for track %d: %s (%dx%d)\n", track, image, w, h);
+		}
+		else
+		{
+			fprintf(stderr, "Cannot load sky \"%s\"\n", path);
+		}
+	}
+}
+
+/* Camera space -> world direction matrix (column major mat4) from the game's world -> camera matrix (row vectors) */
+static void skyCameraToWorld(const int32_t *c, float out[16])
+{
+	int32_t i, j;
+	memset(out, 0, sizeof(float) * 16);
+	for (i = 0; i < 3; ++i)
+		for (j = 0; j < 3; ++j)
+			out[j * 4 + i] = c[i * 3 + j] / 65536.0f; /* world_i = sum_j cam_j * C[i][j] */
+	out[15] = 1.0f;
+}
+
+/*
+ * Sun alignment: measures the game's sun (sky probe of the previous frame) as a world azimuth and averages the
+ * offset to the panorama's sun. Returns true when the panorama can be drawn.
+ */
+static BOOL skyAlign(const float camToWorld[16])
+{
+	float probe[16];
+	if (g_sky.aligned || !g_sky.autoYaw)
+		return true;
+	if (!g_sky.startTicks)
+		g_sky.startTicks = SDL_GetTicks();
+	if (SDL_GetTicks() - g_sky.startTicks > 10000 || !g_post.ok || !g_post.sky.tex || !g_fullWidthView)
+	{
+		/* Not seen in time (or no probe): keep the measured or the configured yaw */
+		if (g_sky.measuredCount > 0.0f)
+			g_sky.yaw = g_sky.measuredSum / g_sky.measuredCount;
+		g_sky.aligned = true;
+		fprintf(stderr, "Sky yaw: %.1f (%s)\n", g_sky.yaw, g_sky.measuredCount > 0.0f ? "measured" : "configured");
+		return true;
+	}
+	glBindTexture(GL_TEXTURE_2D, g_post.sky.tex);
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, probe);
+	glBindTexture(GL_TEXTURE_2D, g_boundTexture);
+	/* Visible sun or sunset glow (x1: uv, coverage, spread) */
+	if (probe[6] > 0.002f && probe[7] < 0.25f)
+	{
+		const float gx = probe[4] * 640.0f, gy = (1.0f - probe[5]) * 480.0f;
+		const float d[3] = {(gx - flt_4D529C) / dword_4D5294, (gy - flt_4D52A0) / flt_4D5298, 1.0f};
+		float w[3], az, offset;
+		int32_t i;
+		for (i = 0; i < 3; ++i)
+			w[i] = camToWorld[0 * 4 + i] * d[0] + camToWorld[1 * 4 + i] * d[1] + camToWorld[2 * 4 + i] * d[2];
+		az = SDL_atan2(w[0], w[2]) * (180.0f / (float)M_PI);
+		/* Panorama azimuth = world azimuth + yaw */
+		offset = g_sky.sunAzimuth - az;
+		while (offset > 180.0f)
+			offset -= 360.0f;
+		while (offset < -180.0f)
+			offset += 360.0f;
+		if (g_sky.measuredCount > 0.0f && fabsf(offset - g_sky.measuredSum / g_sky.measuredCount) > 90.0f)
+			return false; /* Outlier */
+		g_sky.measuredSum += offset;
+		g_sky.measuredCount += 1.0f;
+		if (g_sky.measuredCount >= 20.0f)
+		{
+			g_sky.yaw = g_sky.measuredSum / g_sky.measuredCount;
+			g_sky.aligned = true;
+			fprintf(stderr, "Sky yaw: %.1f (measured from the game's sun)\n", g_sky.yaw);
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Game hook: the horizon (sky backdrop) of a view was queued, the camera is in "camera" */
+REALIGN STDCALL void skyHook(const uint8_t *camera)
+{
+	g_skyView.pending = false;
+	if (!gfx.skies || !camera)
+		return;
+	if (g_sky.track != gfxCurrentTrack)
+		skyLoad(gfxCurrentTrack);
+	if (!g_sky.tex)
+		return;
+	skyCameraToWorld((const int32_t *)(camera + 0x44), g_skyView.camToWorld);
+	g_skyView.proj[0] = dword_4D5294;
+	g_skyView.proj[1] = flt_4D5298;
+	g_skyView.proj[2] = flt_4D529C;
+	g_skyView.proj[3] = flt_4D52A0;
+	g_skyView.pending = true;
+}
+
+/* Draws the panorama of the current view: called before its first 3D triangle */
+static void skyDrawPending()
+{
+	static const float quad[8] = {-1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f};
+	if (!g_skyView.pending)
+		return;
+	g_skyView.pending = false;
+	if (!skyAlign(g_skyView.camToWorld) || !skyCreateProgram())
+		return;
+
+	drawTriangles();
+	glUseProgram(g_skyProg);
+	glDisableVertexAttribArray(g_aPositionLoc);
+	glDisableVertexAttribArray(g_aTexCoordLoc);
+	glDisableVertexAttribArray(g_aColorLoc);
+	glDisableVertexAttribArray(g_aFogLoc);
+	if (g_aMaskLoc >= 0)
+		glDisableVertexAttribArray(g_aMaskLoc);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, quad);
+	glUniform1i(glGetUniformLocation(g_skyProg, "uSkyTex"), 0);
+	glUniform4f(glGetUniformLocation(g_skyProg, "uClip"), g_clipWindow[0], g_clipWindow[1], g_clipWindow[2] - g_clipWindow[0], g_clipWindow[3] - g_clipWindow[1]);
+	glUniform4f(glGetUniformLocation(g_skyProg, "uProj"), g_skyView.proj[0], g_skyView.proj[1], g_skyView.proj[2], g_skyView.proj[3]);
+	glUniformMatrix4fv(glGetUniformLocation(g_skyProg, "uCam"), 1, GL_FALSE, g_skyView.camToWorld);
+	glUniform4f(glGetUniformLocation(g_skyProg, "uParams"), g_sky.yaw * (float)M_PI / 180.0f, g_sky.elevationMin, g_sky.blend[0], g_sky.blend[1]);
+	glBindTexture(GL_TEXTURE_2D, g_sky.tex);
+	glDisable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+	useGameProgram(true);
+	glUniform1f(g_uTextureEnabledLoc, g_textureEnabled);
+	glDepthMask(g_depthMask);
+}

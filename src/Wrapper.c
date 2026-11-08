@@ -73,7 +73,8 @@ GfxSettings gfx = {
 	0.25f, /* haze */
 	320.0f, /* focalLength */
 	true,  /* widescreen */
-	true   /* carModels */
+	true,  /* carModels */
+	true   /* skies */
 };
 /* X projection scale applied by the game code to full-width 3D views (set by the renderer) */
 float widescreenScale = 1.0f;
@@ -149,10 +150,29 @@ static char *createSettingsDirPath(const char *subdir, const char *fn)
 	sprintf(pth, "%s%s/%s", settingsDir, subdir, fn);
 	return pth;
 }
+/* Current track number (from "...\\tracks\\...\\trNN.*" files the game opens), -1 if unknown */
+int32_t gfxCurrentTrack = -1;
+
 char *convertFilePath(const char *srcPth, BOOL convToLower)
 {
 	char *tmpFileName = NULL;
 	uint32_t i;
+	{
+		const char *base = strrchr(srcPth, '\\');
+		base = base ? base + 1 : srcPth;
+		const char *p;
+		BOOL inTracks = false;
+		for (p = srcPth; *p && !inTracks; ++p)
+			inTracks = !strncasecmp(p, "tracks", 6);
+		if (inTracks && (base[0] == 't' || base[0] == 'T') && (base[1] == 'r' || base[1] == 'R') &&
+		    isdigit((unsigned char)base[2]) && isdigit((unsigned char)base[3]) && base[4] == '.')
+		{
+			const int32_t track = (base[2] - '0') * 10 + (base[3] - '0');
+			if (track != gfxCurrentTrack)
+				fprintf(stderr, "Track: %d\n", track);
+			gfxCurrentTrack = track;
+		}
+	}
 	if (settingsDir)
 	{
 		if (!strncasecmp(srcPth, ".\\fedata\\pc\\config\\", 19))
@@ -403,7 +423,8 @@ static BOOL parseGfxSetting(const char *line)
 		parseGfxFloat(line, "Haze", &gfx.haze, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "FocalLength", &gfx.focalLength, 50.0f, 2000.0f) ||
 		parseGfxBool(line, "Widescreen", &gfx.widescreen) ||
-		parseGfxBool(line, "CarModels", &gfx.carModels);
+		parseGfxBool(line, "CarModels", &gfx.carModels) ||
+		parseGfxBool(line, "Skies", &gfx.skies);
 }
 
 #ifdef SWAP_WINDOW_AND_GL_THREAD

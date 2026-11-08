@@ -93,6 +93,9 @@
 #CarModels:
 #	1 - Replace cars with detailed models from "<settings directory>/models/<car>/model.cmdl" when available (default)
 #	0 - Always use the original car models
+#Skies:
+#	1 - High resolution sky panoramas from "<settings directory>/skies/trNN.txt" when available (default)
+#	0 - Original skies
 #JoystickApplyDeadzone:
 #	Apply game default deadzone for joysticks
 #JoystickDisableAxesInMenu:
@@ -180,6 +183,7 @@ Haze=0.25
 FocalLength=320
 Widescreen=1
 CarModels=1
+Skies=1
 LinuxCOM1=/dev/ttyS0
 LinuxCOM2=/dev/ttyS1
 LinuxCOM3=/dev/ttyUSB0

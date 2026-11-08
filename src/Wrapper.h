@@ -84,8 +84,10 @@ typedef struct
 	float focalLength;        /* Game projection focal length in 640x480 pixels (used by SSAO) */
 	BOOL widescreen;          /* Hor+ widescreen: wider field of view on wide windows */
 	BOOL carModels;           /* Replacement car models from "<settings>/models/<car>/model.cmdl" */
+	BOOL skies;               /* High resolution skies from "<settings>/skies/trNN.txt" */
 } GfxSettings;
 extern GfxSettings gfx;
+extern int32_t gfxCurrentTrack; /* Current track number, -1 if unknown */
 
 /* Runtime toggles, set from the event thread and consumed by the renderer */
 extern volatile BOOL gfxPostToggleRequest;

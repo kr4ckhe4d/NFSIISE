@@ -11,6 +11,7 @@ Progress is tracked in [ROADMAP.md](../../ROADMAP.md) at the repository root; up
 
 | File | Contents |
 |---|---|
+| [skies.md](skies.md) | High resolution sky panoramas: hook, drawing, sun alignment, sky files, conversion and install scripts |
 | [car-models.md](car-models.md) | Replacing cars with detailed glTF models: pipeline, `.cmdl` format, hooks, fitting, wheels, lighting, adding a new car |
 | [hd-textures.md](hd-textures.md) | HD texture packs: dump, hashing, Real-ESRGAN upscale, replacement loading |
 | [game-formats.md](game-formats.md) | Game data formats reverse engineered so far: VIV/BIGF archives, GEO car models, engine limits |
@@ -26,8 +27,10 @@ src/Glide2x/OpenGL2.c         Glide -> OpenGL 2 renderer (includes Textures.c, P
 src/Glide2x/Textures.c        texture conversion, hashing, dump/replace, mipmaps
 src/Glide2x/PostFX.c          post-processing (SSAO, SSR, bloom, sun shafts, haze, tone mapping, FXAA, ...)
 src/Glide2x/CarModels.c       replacement car models (loader, fitting, wheel animation, PBR shader)
+src/Glide2x/Sky.c             sky panoramas (track sky files, sun alignment, drawing after the game's backdrop)
 src/Wrapper.c / Wrapper.h     config parsing (GfxSettings gfx), window, hotkeys
 tools/car-models/             Blender converter glTF -> .cmdl, CarConcept installer
+tools/skies/                  Blender converter HDR panorama -> game sky, Poly Haven sky set installer
 tools/hd-textures/upscale.sh  Real-ESRGAN texture pack builder
 tools/formats/nfs2geo.py      VIV/GEO reader/writer/exporter
 tools/gametest/               headless race automation, EGL GPU-selection shim

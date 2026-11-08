@@ -439,6 +439,7 @@ static void drawTriangles();
 # include "PostFX.c"
 static void useGameProgram(BOOL gameProgram);
 # include "CarModels.c"
+# include "Sky.c"
 #endif
 
 static inline BOOL loadShaders()
@@ -1300,6 +1301,10 @@ static inline uint8_t worldMask(const GrVertex *a, const GrVertex *b, const GrVe
 		*mapping = (!g_seen3D && g_prevFrameHas3D && g_fullWidthView) ? MapBackdrop : MapOverlay;
 		return g_seen3D ? 0 : 255;
 	}
+#ifdef GL2_ENHANCED
+	if (!g_seen3D)
+		skyDrawPending(); /* After the sky backdrop, before the first 3D triangle of the view */
+#endif
 	g_seen3D = g_frameHas3D = true;
 	*mapping = g_fullWidthView ? MapWorld : MapOverlay;
 	return 255;

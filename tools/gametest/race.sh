@@ -12,6 +12,7 @@
 #   CONF="K=V ..."  extra nfs2se.conf lines (space separated)
 #   MODELS=dir      replacement car models to install (copied to <settings>/models)
 #   TEXTURES=dir    HD textures to install (copied to <settings>/textures)
+#   SKIES=dir       skies to install (copied to <settings>/skies)
 #   KEEP=1          leave the game running after the screenshot (drive it with tools/gfxtest/xkey)
 #   BIN=cmd         game command (default ./nfs2se; e.g. "gdb -batch -x cmds --args ./nfs2se")
 #
@@ -52,6 +53,7 @@ for try in 1 2 3; do
 	} > "$TEST/home/.nfs2se/nfs2se.conf"
 	[[ -n "${MODELS:-}" ]] && cp -r "$MODELS" "$TEST/home/.nfs2se/models"
 	[[ -n "${TEXTURES:-}" ]] && cp -r "$TEXTURES" "$TEST/home/.nfs2se/textures"
+	[[ -n "${SKIES:-}" ]] && cp -r "$SKIES" "$TEST/home/.nfs2se/skies"
 
 	(cd "$GAME" && env HOME="$TEST/home" SDL_AUDIODRIVER=dummy "$@" ${BIN:-./nfs2se} > "$OUT/game.log" 2>&1 &)
 	sleep 8
