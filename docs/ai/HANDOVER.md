@@ -10,7 +10,8 @@ State after the second session (terrain on all tracks, night, shadows, motion bl
   - Car model: `~/.nfs2se/models/mcf1/` (Khronos CarConcept, CC BY 4.0, cmdl v2 with wheel groups)
   - Skies: `~/.nfs2se/skies/trNN.jpg/.txt` for tr00, 02, 03, 04, 05, 06, 07 (Poly Haven CC0), with the keys
     `hide`, `headlights`, `night_ambient` appended by hand (same result as rerunning install-skies.sh)
-  - Terrain: `~/.nfs2se/terrain/trNN/` for all seven tracks (AWS Terrain Tiles)
+  - Terrain: `~/.nfs2se/terrain/trNN/` for all seven tracks (AWS Terrain Tiles), indexed (15 MB each)
+  - Trees: `~/.nfs2se/trees/` (jacaranda, conifer, palm + trNN.txt tables)
   - `~/.nfs2se/nfs2se.conf` has no new keys (all new features default on: `Shadows=0.5`, `MotionBlur=0.5`).
   - The owner's monitor is now 5120x1440 (32:9).
   To rebuild assets: `tools/car-models/install-carconcept.sh`, `tools/skies/install-skies.sh`,
@@ -40,6 +41,12 @@ State after the second session (terrain on all tracks, night, shadows, motion bl
   city sky was white). Settings: `Shadows=0.5`, `MotionBlur=0.5` (defaults); sky file keys `headlights`,
   `night_ambient`, `hide`, `exposure`. The owner's installed skies were patched by hand (appended keys); rerunning
   `tools/skies/install-skies.sh` produces the same.
+
+- **Third batch (2026-11-08, headless-tested only):** HUD boxes in the corners on wide screens + car models no longer
+  over the pause menu (4a7bc85), rain spray and camera raindrops (647226f), car contact shadows (ad16bee), 3D trees
+  (afe470a, `~/.nfs2se/trees/` installed by `tools/trees/install-trees.sh`; tables cover the start areas only, more
+  tree textures on each lap need adding), indexed terrain 15 MB per track (5a62f3d). New settings (default on):
+  `HudCorners`, `RainSpray=1.0`, `RainDrops=0.5`, `Trees=1`.
 
 ## Suggested next steps (see ROADMAP.md)
 1. Act on the owner's Outback feedback.
