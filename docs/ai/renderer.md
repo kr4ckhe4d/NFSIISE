@@ -41,6 +41,12 @@ expansion, white = 4) and compress back. Debug views: `Alt+M` cycles 0 off, 1 wo
 (`captureTriangle` in OpenGL2.c): one line per game triangle (outcome: world / overlay / backdrop / terrain-hidden /
 backdrop-replaced, texture hash, alpha mode, blend, depth mask, clip window, vertices x y oow alpha) plus the textures
 used, as uploaded (HD if replaced). Debug view 7 shows the headlight light alone, 8 the sun shadows.
+HUD corners (`HudCorners`, `hudShift()` in OpenGL2.c): in a race (`g_prevFrameHas3D`) overlay triangles, lines and
+clip windows lying entirely in x <= 140 or x >= 480 with y >= 300 (game units) move by -/+ (virtual width - 640) / 2:
+record box, minimap (its own clip window 532-640 x 318-453) and the name box. Layout of the race HUD (640x480): top
+bar 0-620 x 0-40 (speedometer, timer, position, lap), mirror clip 486-636 x 40-110, record 0-110 x 440-480, minimap
+and name 520-640 x 300-480. Menus and the pause panel are centred and unaffected.
+Car models still queued when 2D follows the 3D view (pause menu: no `carModelsFlush`) are drawn before that 2D.
 Motion blur (`MotionBlur`, start of the composite shader): each world pixel is reprojected with the previous frame's
 main camera (`skyCameraMotion()` in Sky.c from `g_skyMain`, latched in `skyDrawPending` for full-width views; the
 world is assumed static) and the colour is averaged over 8 samples along the motion, scaled to an exposure of

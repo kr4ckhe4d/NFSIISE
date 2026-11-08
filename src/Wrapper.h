@@ -85,6 +85,7 @@ typedef struct
 	float motionBlur;         /* Camera motion blur, fraction of a 1/60 s frame (0 = off) */
 	float focalLength;        /* Game projection focal length in 640x480 pixels (used by SSAO) */
 	BOOL widescreen;          /* Hor+ widescreen: wider field of view on wide windows */
+	BOOL hudCorners;          /* Widescreen: bottom HUD boxes (minimap, record) pinned to the screen corners in a race */
 	BOOL carModels;           /* Replacement car models from "<settings>/models/<car>/model.cmdl" */
 	BOOL skies;               /* High resolution skies from "<settings>/skies/trNN.txt" */
 	BOOL terrain;             /* Distant terrain from "<settings>/terrain/trNN/" */

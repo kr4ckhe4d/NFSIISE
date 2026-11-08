@@ -75,6 +75,7 @@ GfxSettings gfx = {
 	0.5f,  /* motionBlur */
 	320.0f, /* focalLength */
 	true,  /* widescreen */
+	true,  /* hudCorners */
 	true,  /* carModels */
 	true,  /* skies */
 	true   /* terrain */
@@ -429,6 +430,7 @@ static BOOL parseGfxSetting(const char *line)
 		parseGfxFloat(line, "MotionBlur", &gfx.motionBlur, 0.0f, 2.0f) ||
 		parseGfxFloat(line, "FocalLength", &gfx.focalLength, 50.0f, 2000.0f) ||
 		parseGfxBool(line, "Widescreen", &gfx.widescreen) ||
+		parseGfxBool(line, "HudCorners", &gfx.hudCorners) ||
 		parseGfxBool(line, "CarModels", &gfx.carModels) ||
 		parseGfxBool(line, "Skies", &gfx.skies) ||
 		parseGfxBool(line, "Terrain", &gfx.terrain);

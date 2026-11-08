@@ -72,7 +72,9 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [ ] Grass, plants and rocks scattered on ground with grass/dirt textures
 
 ## 7. Usability `[ ]`
-- [ ] HD HUD pinned to the corners on ultrawide screens
+- [x] Bottom HUD boxes (minimap + name, record) pinned to the screen corners in a race (`HudCorners`); the top bar
+      and the mirror stay centred (the bar is one graphic)
+- [x] Car models no longer drawn over the pause menu (pending cars are drawn before 2D after the 3D view)
 - [ ] Pause menu "quit to system" doesn't exit (pre-existing upstream bug)
 
 ## Notes

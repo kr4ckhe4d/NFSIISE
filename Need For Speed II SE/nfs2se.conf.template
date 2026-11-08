@@ -94,6 +94,9 @@
 #Widescreen:
 #	1 - Hor+ widescreen on windows wider than 4:3: wider field of view, HUD and menus stay 4:3 in the middle (default)
 #	0 - Original 4:3 picture (see "KeepAspectRatio")
+#HudCorners:
+#	1 - In a race on wide screens, the bottom HUD boxes (minimap, name, record) move to the screen corners (default)
+#	0 - The whole HUD stays 4:3 in the middle
 #CarModels:
 #	1 - Replace cars with detailed models from "<settings directory>/models/<car>/model.cmdl" when available (default)
 #	0 - Always use the original car models
@@ -191,6 +194,7 @@ Shadows=0.5
 MotionBlur=0.5
 FocalLength=320
 Widescreen=1
+HudCorners=1
 CarModels=1
 Skies=1
 Terrain=1

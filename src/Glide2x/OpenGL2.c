@@ -394,6 +394,7 @@ static float g_virtualWidth = 640.0f;
 static BOOL  g_fullWidthView = true;
 static float g_clipWindow[4] = {0.0f, 0.0f, 640.0f, 480.0f}; /* Current clip window in 640x480 game units */
 static BOOL  g_prevFrameHas3D;
+static inline float hudShift(float minX, float maxX, float minY);
 
 /* GLSL config */
 static float g_textureEnabled;
@@ -1221,6 +1222,13 @@ REALIGN STDCALL void grClipWindow(uint32_t minX, uint32_t minY, uint32_t maxX, u
 		virtualMinX = 0.0f;
 		virtualMaxX = g_virtualWidth;
 	}
+	else
+	{
+		/* A clip window of a corner HUD element (minimap) moves with it */
+		const float shift = hudShift(minX, SDL_min(maxX, 640), minY);
+		virtualMinX += shift;
+		virtualMaxX += shift;
+	}
 
 	g_clipRectUV[0] = virtualMinX / g_virtualWidth;
 	g_clipRectUV[1] = 1.0f - maxY / 480.0f;
@@ -1447,6 +1455,11 @@ static inline uint8_t worldMask(const GrVertex *a, const GrVertex *b, const GrVe
 	{
 		/* Sky backdrop of a race frame is stretched with the 3D view, overlays and menus are not */
 		*mapping = (!g_seen3D && g_prevFrameHas3D && g_fullWidthView) ? MapBackdrop : MapOverlay;
+#ifdef GL2_ENHANCED
+		/* 2D after the 3D view (HUD, pause menu): car models still pending belong under it */
+		if (g_seen3D && g_carDrawCount)
+			carModelsDraw(false);
+#endif
 		return g_seen3D ? 0 : 255;
 	}
 #ifdef GL2_ENHANCED
@@ -1462,6 +1475,23 @@ static inline uint8_t worldMask(const GrVertex *a, const GrVertex *b, const GrVe
 	g_seen3D = g_frameHas3D = true;
 	*mapping = g_fullWidthView ? MapWorld : MapOverlay;
 	return 255;
+}
+
+/*
+ * HUD in the corners (HudCorners): in a race on a wide screen, 2D elements entirely in the bottom left or bottom right
+ * corner of the 4:3 layout (record box; minimap with its clip window, name box) move to the screen edges. Returns the
+ * shift in virtual units for an element with this bounding box (game units).
+ */
+static inline float hudShift(float minX, float maxX, float minY)
+{
+	const float offset = (g_virtualWidth - 640.0f) * 0.5f;
+	if (!gfx.hudCorners || offset <= 0.0f || !g_prevFrameHas3D || minY < 300.0f)
+		return 0.0f;
+	if (maxX <= 140.0f)
+		return -offset;
+	if (minX >= 480.0f)
+		return offset;
+	return 0.0f;
 }
 
 /* Maps game X (640 units) to the virtual screen */
@@ -1542,7 +1572,13 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 	}
 #endif
 	const uint8_t mask = (world && beyondFogTable) ? world - 1 : world;
+	float shift = 0.0f;
 	uint32_t i;
+	if (mapping == MapOverlay)
+	{
+		const float ax = a->x - VertexSnap, bx = b->x - VertexSnap, cx = c->x - VertexSnap;
+		shift = hudShift(SDL_min(ax, SDL_min(bx, cx)), SDL_max(ax, SDL_max(bx, cx)), SDL_min(a->y, SDL_min(b->y, c->y)) - VertexSnap);
+	}
 	for (i = 0; i < 3; ++i)
 	{
 		const GrVertex *grVertex = grVertices[i];
@@ -1559,7 +1595,7 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 		g_textureCoord[g_trianglesCount].vertex[i].t = grVertex->tmuvtx[0].tow / 256.0f;
 		g_textureCoord[g_trianglesCount].vertex[i].q = grVertex->oow;
 
-		g_vertices[g_trianglesCount].vertex[i].x = mapX(grVertex->x - VertexSnap, mapping);
+		g_vertices[g_trianglesCount].vertex[i].x = mapX(grVertex->x - VertexSnap, mapping) + shift;
 		g_vertices[g_trianglesCount].vertex[i].y = grVertex->y - VertexSnap;
 		g_vertices[g_trianglesCount].vertex[i].z = grVertex->oow;
 	}
@@ -1577,6 +1613,7 @@ REALIGN STDCALL void grDrawLine(const GrVertex *a, const GrVertex *b)
 	const GrVertex *grVertices[2] = {a, b};
 	const BOOL flat = a->oow >= 0.999f && b->oow >= 0.999f;
 	const int32_t mapping = (g_fullWidthView && !(flat && g_seen3D)) ? MapWorld : MapOverlay;
+	const float shift = mapping == MapOverlay ? hudShift(SDL_min(a->x, b->x) - VertexSnap, SDL_max(a->x, b->x) - VertexSnap, SDL_min(a->y, b->y) - VertexSnap) : 0.0f;
 	uint32_t i;
 	for (i = 0; i < 2; ++i)
 	{
@@ -1587,7 +1624,7 @@ REALIGN STDCALL void grDrawLine(const GrVertex *a, const GrVertex *b)
 
 		g_maskValues->vertex[i] = (grVertices[i]->oow >= 0.999f && g_seen3D) ? 0 : 255;
 
-		g_vertices->vertex[i].x = mapX(grVertices[i]->x - VertexSnap, mapping);
+		g_vertices->vertex[i].x = mapX(grVertices[i]->x - VertexSnap, mapping) + shift;
 		g_vertices->vertex[i].y = grVertices[i]->y - VertexSnap;
 		g_vertices->vertex[i].z = grVertices[i]->oow;
 	}

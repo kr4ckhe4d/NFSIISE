@@ -141,6 +141,7 @@ Available in the desktop OpenGL 2 build (the default `./compile_nfs`). Everythin
 On windows wider than 4:3 the game renders a wider horizontal field of view (Hor+) instead of stretching or pillarboxing the picture. The HUD, the rear-view mirror and menus stay 4:3 in the middle of the screen, so they are never distorted. The sky backdrop is widened to reach the screen edges.
 
 * `Widescreen=1` - enabled (default), `Widescreen=0` - original 4:3 picture (see `KeepAspectRatio`).
+* `HudCorners=1` (default) - in a race the bottom HUD boxes (minimap with the opponent's name, the record box) move to the screen corners so they don't cover the road; the top bar and the mirror stay in the middle. `HudCorners=0` keeps the whole HUD 4:3 in the middle.
 * Works with any aspect ratio (16:9, 21:9, 32:9); the field of view follows the window shape.
 * Requires the x86 build - the game code in `src/Asm` is patched for it. The `cpp` build shows a stretched picture.
 * After changing the window shape (e.g. `Alt+Enter`), the new field of view is used from the next race.
