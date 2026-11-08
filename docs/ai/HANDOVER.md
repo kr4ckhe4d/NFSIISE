@@ -26,6 +26,12 @@ State at the end of the first long session. Read `CLAUDE.md`, then `ROADMAP.md`,
   pre-existing upstream bug: "quit to system" doesn't exit.)
 - Models for the other cars: the owner has to supply them (or name sources); only `mcf1` is replaced.
 
+- **Outback "bugs"** (2026-11-08, owner at 5120x1440 = 32:9): later in a race, yellow fly-like sprites fill the sky
+  and orange/white splat blobs sit at fixed screen positions (mostly the wide side areas), with dark rectangles that
+  show reflections; they fade after a while and don't follow wall hits. Not reproduced headless. Waiting for an
+  `Alt+D` frame capture from the owner (`~/.nfs2se/screenshots/capture-*`) to see the hashes and how they're drawn.
+  The brown ceiling seen in the same screenshots was the terrain (fixed in 3873378).
+
 ## Suggested next steps (see ROADMAP.md)
 1. Act on the owner's Outback feedback.
 2. Terrain for the other tracks: pick real places, find each track's stand-ins (method in `terrain.md`).
