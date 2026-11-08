@@ -137,9 +137,12 @@ static const char g_sprayFragmentSrc[] =
 	"#version 120\n"
 	"varying vec3 vUVA;\n"
 	"uniform vec3 uColor;\n"
+	"uniform float uShape;\n" /* 0 - soft round puff, 1 - soft rounded rectangle (car contact shadow) */
 	"void main()\n"
 	"{\n"
-	"	float a = vUVA.z * exp(-3.0 * dot(vUVA.xy, vUVA.xy));\n"
+	"	vec2 q = abs(vUVA.xy);\n"
+	"	float box = pow(pow(q.x, 4.0) + pow(q.y, 4.0), 0.25);\n"
+	"	float a = vUVA.z * (uShape > 0.5 ? 1.0 - smoothstep(0.45, 1.0, box) : exp(-3.0 * dot(vUVA.xy, vUVA.xy)));\n"
 	"	gl_FragData[0] = vec4(uColor, a);\n"
 	"	gl_FragData[1] = vec4(1.0, 0.0, 0.0, a);\n"
 	"}\n"
@@ -265,6 +268,7 @@ static void sprayDraw()
 		/* Mist: lighter than the fog colour, darker at night */
 		const float l = 0.2126f * g_fogColor[0] + 0.7152f * g_fogColor[1] + 0.0722f * g_fogColor[2];
 		glUniformMatrix4fv(glGetUniformLocation(g_sprayProg, "uProj"), 1, GL_FALSE, proj);
+		glUniform1f(glGetUniformLocation(g_sprayProg, "uShape"), 0.0f);
 		glUniform3f(glGetUniformLocation(g_sprayProg, "uColor"), 0.5f * g_fogColor[0] + 0.5f * l + 0.15f, 0.5f * g_fogColor[1] + 0.5f * l + 0.15f, 0.5f * g_fogColor[2] + 0.5f * l + 0.15f);
 	}
 	glEnable(GL_DEPTH_TEST);
@@ -272,6 +276,75 @@ static void sprayDraw()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDrawArrays(GL_TRIANGLES, 0, n * 6);
+	glDisableVertexAttribArray(1);
+	useGameProgram(true);
+	glUniform1f(g_uTextureEnabledLoc, g_textureEnabled);
+	glDepthMask(g_depthMask);
+	glBlendFunc(GL_SRC_ALPHA, g_blendFuncDFactor);
+}
+
+/*
+ * Soft contact shadows under the replacement car models (instead of the game's flat shadow quad): a rounded rectangle
+ * slightly larger than the car's footprint, just above the ground under the wheels. Drawn after the scene (so the road
+ * is below it) and before the glass; the car body hides the part under it.
+ */
+static void sprayCarShadows()
+{
+	static const float corner[6][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, -1}, {1, 1}, {-1, 1}};
+	float verts[6 * 3], uva[6 * 3];
+	int32_t i, q, r;
+	if (!g_carDrawCount || !sprayCreateProgram())
+		return;
+	drawTriangles();
+	glUseProgram(g_sprayProg);
+	glDisableVertexAttribArray(g_aPositionLoc);
+	glDisableVertexAttribArray(g_aTexCoordLoc);
+	glDisableVertexAttribArray(g_aColorLoc);
+	glDisableVertexAttribArray(g_aFogLoc);
+	if (g_aMaskLoc >= 0)
+		glDisableVertexAttribArray(g_aMaskLoc);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, verts);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, uva);
+	glUniform1f(glGetUniformLocation(g_sprayProg, "uShape"), 1.0f);
+	glUniform3f(glGetUniformLocation(g_sprayProg, "uColor"), 0.0f, 0.0f, 0.0f);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glEnable(GL_POLYGON_OFFSET_FILL);
+	glPolygonOffset(-1.0f, -4.0f);
+	for (i = 0; i < g_carDrawCount; ++i)
+	{
+		const CarDraw *d = &g_carDraws[i];
+		const CarGeo *g = d->geo;
+		if (g->terrain || !g->fitted || !g->model || g->model->failed)
+			continue;
+		for (q = 0; q < 6; ++q)
+		{
+			const float p[3] = {g->shadow[0] + corner[q][0] * g->shadow[2] * 1.25f, g->shadow[4] + 0.03f, g->shadow[1] + corner[q][1] * g->shadow[3] * 1.12f};
+			for (r = 0; r < 3; ++r)
+				verts[q * 3 + r] = d->rot[r * 3 + 0] * p[0] + d->rot[r * 3 + 1] * p[1] + d->rot[r * 3 + 2] * p[2] + d->origin[r];
+			uva[q * 3 + 0] = corner[q][0];
+			uva[q * 3 + 1] = corner[q][1];
+			uva[q * 3 + 2] = 0.65f;
+		}
+		{
+			const float x0 = g_clipWindow[0], y0 = g_clipWindow[1], w = g_clipWindow[2] - g_clipWindow[0], h = g_clipWindow[3] - g_clipWindow[1];
+			const float sx = d->proj[0], sy = d->proj[1], cx = d->proj[2], cy = d->proj[3];
+			const float proj[16] = {
+				2.0f * sx / w, 0.0f, 0.0f, 0.0f,
+				0.0f, -2.0f * sy / h, 0.0f, 0.0f,
+				2.0f * (cx - x0) / w - 1.0f, 1.0f - 2.0f * (cy - y0) / h, 1.0f, 1.0f,
+				0.0f, 0.0f, -2.0f, 0.0f,
+			};
+			glUniformMatrix4fv(glGetUniformLocation(g_sprayProg, "uProj"), 1, GL_FALSE, proj);
+		}
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+	}
+	glDisable(GL_POLYGON_OFFSET_FILL);
 	glDisableVertexAttribArray(1);
 	useGameProgram(true);
 	glUniform1f(g_uTextureEnabledLoc, g_textureEnabled);

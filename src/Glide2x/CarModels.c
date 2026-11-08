@@ -52,6 +52,7 @@ typedef struct
 	const uint8_t *geo;
 	CarModel *model;
 	float scale, offset[3]; /* Model space (mirrored X) -> car space */
+	float shadow[5];        /* Contact shadow in car space: centre X, centre Z, half width, half length, ground Y */
 	BOOL fitted;
 	BOOL terrain;           /* Distant terrain (Terrain.c): world coordinates, no car marking, own fog */
 	char name[32];
@@ -292,6 +293,11 @@ static void carFitModel(CarGeo *g)
 	g->offset[0] = (bmin[0] + bmax[0]) * 0.5f - (m->bmin[0] + m->bmax[0]) * 0.5f * g->scale;
 	g->offset[1] = ground - m->bmin[1] * g->scale;
 	g->offset[2] = (bmin[2] + bmax[2]) * 0.5f - (m->bmin[2] + m->bmax[2]) * 0.5f * g->scale;
+	g->shadow[0] = (bmin[0] + bmax[0]) * 0.5f;
+	g->shadow[1] = (bmin[2] + bmax[2]) * 0.5f;
+	g->shadow[2] = (m->bmax[0] - m->bmin[0]) * 0.5f * g->scale;
+	g->shadow[3] = (bmax[2] - bmin[2]) * 0.5f;
+	g->shadow[4] = ground;
 }
 
 /* Game hook: a car GEO model was loaded */
@@ -409,6 +415,7 @@ static CarHeadlight g_hlCandidate, g_hlFrame;
 
 static void sprayCar(const uint8_t *object); /* Spray.c */
 static void sprayDraw();
+static void sprayCarShadows();
 
 static void carHeadlightCandidate(const float rot[9], const float origin[3])
 {
@@ -523,8 +530,8 @@ REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const in
 	}
 	if (!gfx.carModels || !g_carGeos[gi].model || g_carGeos[gi].model->failed)
 		return;
-	/* Shadow (part 9) stays, everything else is replaced */
-	if (i == 9 || i == 10)
+	/* The game's flat shadow quad (part 9) is replaced by a soft contact shadow (Spray.c), part 10 stays */
+	if (i == 10)
 		return;
 	carPartSkip = 1;
 	if ((i == 1 || i == 21) && g_carDrawCount < CAR_MAX_DRAWS)
@@ -998,6 +1005,7 @@ static void carModelsDraw(BOOL opaqueOnly)
 /* Game hook: the scene's polygons were drawn */
 REALIGN STDCALL void carModelsFlush()
 {
+	sprayCarShadows();
 	carModelsDraw(false);
 	sprayDraw();
 }

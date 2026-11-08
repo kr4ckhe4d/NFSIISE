@@ -60,7 +60,7 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 ## 4. Shadows `[~]`
 - [x] Screen-space sun shadows from the scene depth (cars, walls, fences, trees), `Shadows`, sunny skies - bdb4edc
 - [ ] Owner check; shadows of off-screen occluders (would need a shadow map of the game's geometry)
-- [ ] Shadows of the car models (replacing the game's flat shadow quad)
+- [x] Soft contact shadows of the car models replacing the game's flat shadow quad (`sprayCarShadows`)
 
 ## 5. Speed effects `[~]`
 - [x] Camera motion blur of the scenery (`MotionBlur`, frame-rate independent), cars stay sharp - 10884c5

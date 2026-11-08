@@ -71,7 +71,8 @@ Coordinates are glTF-like (right handed, Y up, +Z front). The loader negates X o
   not run with the GL context current).
 - **carPartHook(part, m, t, object)** – called at the start of the per-part draw `sub_47FCD0`. Finds which registered
   GEO and part index this is (compares with the 32 part pointers at `geo + 4 + 4*i`). For a replaced car it sets
-  `carPartSkip = 1` (the asm then returns without drawing) for every part except 9 and 10 (9 is the shadow quad).
+  `carPartSkip = 1` (the asm then returns without drawing) for every part except 10; part 9 (the game's flat shadow quad)
+  is replaced by a soft contact shadow (`sprayCarShadows` in Spray.c).
   On part 1 or 21 (high/low detail body) it queues one model draw with:
   - `rot` = the game's model->camera matrix (16.16, row-vector convention: `cam = v * M`, transposed to column form),
   - `origin` = camera-space translation minus `pos_part * M` (so the car origin, not the part origin),

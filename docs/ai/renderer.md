@@ -52,6 +52,10 @@ rain level), simulates them (drag, light gravity, growth) and draws them at `car
 soft sprites with the car models' projection, depth tested, no depth write, tinted by the fog colour. Raindrops on the
 camera: two layers of hashed cells in the composite shader, each drop slides down, fades and refracts (flips) the
 picture behind it (`uRainDrops`, `uTime`).
+Car contact shadows (`sprayCarShadows()` in Spray.c, at `carModelsFlush` before the glass): for each replaced car a
+soft rounded rectangle (superellipse) 1.25x the original body width and 1.12x its length, 3 cm above the ground under
+the wheels (`CarGeo.shadow`, measured in `carFitModel`), alpha 0.65, polygon offset; the game's shadow quad (GEO part
+9) is skipped for replaced cars.
 Car models still queued when 2D follows the 3D view (pause menu: no `carModelsFlush`) are drawn before that 2D.
 Motion blur (`MotionBlur`, start of the composite shader): each world pixel is reprojected with the previous frame's
 main camera (`skyCameraMotion()` in Sky.c from `g_skyMain`, latched in `skyDrawPending` for full-width views; the
