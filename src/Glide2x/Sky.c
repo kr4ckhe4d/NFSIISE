@@ -10,9 +10,8 @@
  * its sorted polygon list, so the panorama is drawn when the first 3D triangle of the view arrives (worldMask()). It fades in above the horizon, which keeps the game's distant
  * terrain (mountains, skyline) from the backdrop.
  *
- * The panorama is rotated so its sun matches the game's: while the game's own sun is visible during the first
- * seconds on a track (found by the post-processing sky probe), the panorama isn't drawn and the offset between
- * both suns is measured. "yaw" in the sky file is used when the game's sun isn't seen.
+ * The panorama is rotated so its sun matches the game's: the brightest vertex of the game's sky gradient (its sun
+ * glow) gives the game's sun azimuth. "yaw" in the sky file is used when the game's sky has no clear glow.
  *
  * Sky file (key=value): image=<file in the same directory>, elevation_min=<degrees at the bottom row>,
  * yaw=<degrees>, sun_azimuth/sun_elevation=<sun in the image, degrees>, horizon_blend=<from> <to> (degrees),
@@ -32,9 +31,10 @@ typedef struct
 	GLuint ibl[3];          /* Image based lighting: sharp (512 wide), blurred (128), diffuse (32), same encoding */
 	float elevationMin;     /* Degrees */
 	float yaw, sunAzimuth, sunElevation, blend[2];
+	float gameFog;          /* Share of the game's fog colour in the sky fog (0 - panorama only) */
 	BOOL autoYaw;
 	/* Sun alignment */
-	uint32_t startTicks;
+	uint32_t startTicks;    /* Views without a glow in the game's sky */
 	float measuredSum, measuredCount;
 	BOOL aligned;
 } SkyState;
@@ -48,6 +48,7 @@ static struct
 	float camToWorld[16], proj[4];
 } g_skyView;
 static BOOL g_skyReplacing; /* The panorama was drawn in the current view: the game's sky gradient is skipped */
+static void skySetFog(BOOL on);
 
 /* Camera of the main (full width) view of the frame, for the post-processing */
 static struct
@@ -315,6 +316,7 @@ static void skyLoad(int32_t track)
 	g_sky.blend[0] = 1.0f;
 	g_sky.blend[1] = 6.0f;
 	g_sky.autoYaw = true;
+	g_sky.gameFog = 0.5f;
 	if (track < 0 || !getSettingsDir())
 		return;
 	snprintf(path, sizeof path, "%s/skies/tr%02d.txt", getSettingsDir(), track);
@@ -342,6 +344,8 @@ static void skyLoad(int32_t track)
 			sscanf(v, "%f %f", &g_sky.blend[0], &g_sky.blend[1]);
 		else if (!strcmp(line, "auto_yaw"))
 			g_sky.autoYaw = atoi(v) != 0;
+		else if (!strcmp(line, "game_fog"))
+			g_sky.gameFog = SDL_max(0.0f, SDL_min(1.0f, (float)atof(v)));
 	}
 	fclose(f);
 	if (image[0])
@@ -396,63 +400,83 @@ static void skyCameraToWorld(const int32_t *c, float out[16])
 }
 
 /*
- * Sun alignment: measures the game's sun (sky probe of the previous frame) as a world azimuth and averages the
- * offset to the panorama's sun. Returns true when the panorama can be drawn.
+ * Sun alignment. The game's sky gradient (skipped while a panorama is drawn) has per-vertex colours with its sun
+ * glow brightest: the brightest gradient vertex of the main view is turned into a world azimuth, and the panorama is
+ * rotated so its own sun is there. The yaw is a running average, locked after 30 views; the panorama is drawn from
+ * the start (only the first frame uses the configured yaw).
  */
-static BOOL skyAlign(const float camToWorld[16])
+static struct
 {
-	float probe[16];
-	if (g_sky.aligned || !g_sky.autoYaw)
-		return true;
-	if (!g_sky.startTicks)
-		g_sky.startTicks = SDL_GetTicks();
-	if (SDL_GetTicks() - g_sky.startTicks > 10000 || !g_post.ok || !g_post.sky.tex || !g_fullWidthView)
+	float maxLum, minLum, x, y;
+	int32_t count;
+} g_skyGradient;
+
+static void skyObserveGradient(const GrVertex *a, const GrVertex *b, const GrVertex *c)
+{
+	const GrVertex *v[3] = {a, b, c};
+	int32_t i;
+	for (i = 0; i < 3; ++i)
 	{
-		/* Not seen in time (or no probe): keep the measured or the configured yaw */
-		if (g_sky.measuredCount > 0.0f)
-			g_sky.yaw = g_sky.measuredSum / g_sky.measuredCount;
-		g_sky.aligned = true;
-		fprintf(stderr, "Sky yaw: %.1f (%s)\n", g_sky.yaw, g_sky.measuredCount > 0.0f ? "measured" : "configured");
-		return true;
+		const float lum = v[i]->r + v[i]->g + v[i]->b;
+		if (!g_skyGradient.count || lum > g_skyGradient.maxLum)
+		{
+			g_skyGradient.maxLum = lum;
+			g_skyGradient.x = v[i]->x - VertexSnap;
+			g_skyGradient.y = v[i]->y - VertexSnap;
+		}
+		if (!g_skyGradient.count || lum < g_skyGradient.minLum)
+			g_skyGradient.minLum = lum;
+		++g_skyGradient.count;
 	}
-	glBindTexture(GL_TEXTURE_2D, g_post.sky.tex);
-	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, probe);
-	glBindTexture(GL_TEXTURE_2D, g_boundTexture);
-	/* Visible sun or sunset glow (x1: uv, coverage, spread) */
-	if (probe[6] > 0.002f && probe[7] < 0.25f)
+}
+
+/* Called before the first 3D triangle of a view: uses the gradient seen in it */
+static void skyProcessGradient()
+{
+	const int32_t count = g_skyGradient.count;
+	g_skyGradient.count = 0;
+	if (g_sky.aligned || !g_sky.autoYaw || !g_sky.tex || !g_fullWidthView || count < 6)
+		return;
+	/* A clear glow: the brightest vertex is distinctly brighter than the darkest */
+	if (g_skyGradient.maxLum > g_skyGradient.minLum * 1.15f + 6.0f)
 	{
-		const float gx = probe[4] * 640.0f, gy = (1.0f - probe[5]) * 480.0f;
-		const float d[3] = {(gx - flt_4D529C) / dword_4D5294, (gy - flt_4D52A0) / flt_4D5298, 1.0f};
-		float w[3], az, offset;
+		const float *m = g_skyView.camToWorld;
+		const float d[3] = {(g_skyGradient.x - g_skyView.proj[2]) / g_skyView.proj[0], (g_skyGradient.y - g_skyView.proj[3]) / g_skyView.proj[1], 1.0f};
+		float w[3], az, offset, mean;
 		int32_t i;
 		for (i = 0; i < 3; ++i)
-			w[i] = camToWorld[0 * 4 + i] * d[0] + camToWorld[1 * 4 + i] * d[1] + camToWorld[2 * 4 + i] * d[2];
+			w[i] = m[0 * 4 + i] * d[0] + m[1 * 4 + i] * d[1] + m[2 * 4 + i] * d[2];
 		az = SDL_atan2(w[0], w[2]) * (180.0f / (float)M_PI);
 		/* Panorama azimuth = world azimuth + yaw */
 		offset = g_sky.sunAzimuth - az;
-		while (offset > 180.0f)
+		mean = g_sky.measuredCount > 0.0f ? g_sky.measuredSum / g_sky.measuredCount : offset;
+		while (offset - mean > 180.0f)
 			offset -= 360.0f;
-		while (offset < -180.0f)
+		while (offset - mean < -180.0f)
 			offset += 360.0f;
-		if (g_sky.measuredCount > 0.0f && fabsf(offset - g_sky.measuredSum / g_sky.measuredCount) > 90.0f)
-			return false; /* Outlier */
 		g_sky.measuredSum += offset;
 		g_sky.measuredCount += 1.0f;
-		if (g_sky.measuredCount >= 20.0f)
+		g_sky.yaw = g_sky.measuredSum / g_sky.measuredCount;
+		if (g_sky.measuredCount >= 30.0f)
 		{
-			g_sky.yaw = g_sky.measuredSum / g_sky.measuredCount;
 			g_sky.aligned = true;
-			fprintf(stderr, "Sky yaw: %.1f (measured from the game's sun)\n", g_sky.yaw);
-			return true;
+			fprintf(stderr, "Sky yaw: %.1f (measured from the game's sky)\n", g_sky.yaw);
 		}
 	}
-	return false;
+	else if (++g_sky.startTicks > 300)
+	{
+		/* No glow in the game's sky (overcast): keep the configured or measured yaw */
+		g_sky.aligned = true;
+		fprintf(stderr, "Sky yaw: %.1f (%s)\n", g_sky.yaw, g_sky.measuredCount > 0.0f ? "measured" : "configured");
+	}
 }
 
 /* Game hook: the horizon (sky backdrop) of a view was queued, the camera is in "camera" */
 REALIGN STDCALL void skyHook(const uint8_t *camera)
 {
 	g_skyView.pending = false;
+	if (g_skyReplacing)
+		skySetFog(false); /* A new view: its own sky sets the fog again */
 	g_skyReplacing = false;
 	if (!camera)
 		return;
@@ -472,6 +496,30 @@ REALIGN STDCALL void skyHook(const uint8_t *camera)
 	g_skyView.pending = true;
 }
 
+/*
+ * Sky fog: the game's fog colour is replaced per pixel by the (blurred) panorama near the horizon in the pixel's
+ * direction, so distant geometry fades into the sky behind it. Set for the view whose sky was drawn.
+ */
+static void skySetFog(BOOL on)
+{
+	GLint viewport[4];
+	glUseProgram(g_shaderProgram);
+	glUniform1f(glGetUniformLocation(g_shaderProgram, "uSkyFog"), on ? 1.0f : 0.0f);
+	if (!on)
+		return;
+	glGetIntegerv(GL_VIEWPORT, viewport);
+	glActiveTexture(GL_TEXTURE8);
+	glBindTexture(GL_TEXTURE_2D, g_sky.ibl[1]);
+	glActiveTexture(GL_TEXTURE0);
+	glUniform1i(glGetUniformLocation(g_shaderProgram, "uSkyFogTex"), 8);
+	glUniformMatrix4fv(glGetUniformLocation(g_shaderProgram, "uSkyFogCam"), 1, GL_FALSE, g_skyView.camToWorld);
+	glUniform4f(glGetUniformLocation(g_shaderProgram, "uSkyFogProj"), g_skyView.proj[0], g_skyView.proj[1], g_skyView.proj[2], g_skyView.proj[3]);
+	glUniform4f(glGetUniformLocation(g_shaderProgram, "uSkyFogViewport"), viewport[0], viewport[1], viewport[2], viewport[3]);
+	glUniform4f(glGetUniformLocation(g_shaderProgram, "uSkyFogClip"), g_clipWindow[0], g_clipWindow[1], g_clipWindow[2] - g_clipWindow[0], g_clipWindow[3] - g_clipWindow[1]);
+	glUniform2f(glGetUniformLocation(g_shaderProgram, "uSkyFogParams"), g_sky.yaw * (float)M_PI / 180.0f, g_sky.elevationMin);
+	glUniform1f(glGetUniformLocation(g_shaderProgram, "uSkyFogMix"), g_sky.gameFog);
+}
+
 /* Draws the panorama of the current view: called before its first 3D triangle */
 static void skyDrawPending()
 {
@@ -488,7 +536,7 @@ static void skyDrawPending()
 	if (!g_skyView.pending)
 		return;
 	g_skyView.pending = false;
-	if (!skyAlign(g_skyView.camToWorld) || !skyCreateProgram())
+	if (!skyCreateProgram())
 		return;
 
 	drawTriangles();
@@ -516,6 +564,7 @@ static void skyDrawPending()
 	g_skyReplacing = true;
 
 	useGameProgram(true);
+	skySetFog(true);
 	glUniform1f(g_uTextureEnabledLoc, g_textureEnabled);
 	glDepthMask(g_depthMask);
 }

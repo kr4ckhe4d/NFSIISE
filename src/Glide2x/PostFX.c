@@ -628,6 +628,11 @@ static const char g_postUpSrc[] =
 /* Composite: AO, bloom, exposure, grading and filmic curve; output alpha = world mask */
 static const char g_postCompositeSrc[] =
 	POST_COMMON
+	POST_VIEW
+	"uniform sampler2D uPano;\n"
+	"uniform float uPanoOn;\n"
+	"uniform mat4 uPanoCam;\n"
+	"uniform vec2 uPanoParams;\n"
 	"uniform sampler2D uColor;\n"
 	"uniform sampler2D uMask;\n"
 	"uniform sampler2D uDepth;\n"
@@ -695,6 +700,15 @@ static const char g_postCompositeSrc[] =
 	"	if (uHaze > 0.0 && depth < 0.999999)\n"
 	"	{\n"
 	"		vec3 skyColor = texture2D(uSky, vec2(0.5 / 4.0, 0.5)).rgb;\n"
+	/* With a sky panorama: the sky near the horizon in this direction (the sky behind the geometry) */
+	"		setView(vUV);\n"
+	"		if (uPanoOn > 0.5 && !gSub)\n"
+	"		{\n"
+	"			vec3 d = normalize((uPanoCam * vec4(viewPos(vUV, 1.0), 0.0)).xyz);\n"
+	"			float el = clamp(degrees(asin(clamp(d.y, -1.0, 1.0))), 0.5, 6.0);\n"
+	"			vec2 puv = vec2(fract((atan(d.x, d.z) + uPanoParams.x) / 6.2831853 + 0.5), (90.0 - el) / (90.0 - uPanoParams.y));\n"
+	"			skyColor = mix(skyColor, expandHDR(toLinear(texture2D(uPano, puv).rgb), uWhite), 0.5);\n"
+	"		}\n"
 	"		hdr = mix(hdr, skyColor, uHaze * (1.0 - exp(-linearDepth(depth) * 0.003)) * mask);\n"
 	"	}\n"
 	"	hdr = mix(hdr, refl.rgb, refl.a * mask);\n"
@@ -1504,6 +1518,19 @@ static void postEffects()
 	postUniform1f(g_post.compositeProg, "uReflections", refl ? 1.0f : 0.0f);
 	postUniform1f(g_post.compositeProg, "uShaftStrength", shafts ? gfx.sunShafts : 0.0f);
 	postUniform1f(g_post.compositeProg, "uHaze", sky ? gfx.haze : 0.0f);
+	{
+		/* Haze towards the sky panorama in the pixel's direction (units 9, 10) */
+		float cam[16], yaw = 0.0f, elevationMin = 0.0f;
+		const BOOL pano = skyMainPanorama(9, cam, &yaw, &elevationMin);
+		postViewUniforms(g_post.compositeProg, (float)g_virtualWidth * 0.5f / gfx.focalLength, 240.0f / gfx.focalLength);
+		postUniform1f(g_post.compositeProg, "uPanoOn", pano ? 1.0f : 0.0f);
+		postUniform1i(g_post.compositeProg, "uPano", 10);
+		if (pano)
+		{
+			glUniformMatrix4fv(glGetUniformLocation(g_post.compositeProg, "uPanoCam"), 1, GL_FALSE, cam);
+			postUniform2f(g_post.compositeProg, "uPanoParams", yaw, elevationMin);
+		}
+	}
 	postUniform2f(g_post.compositeProg, "uAOTexel", 1.0f / g_post.aoA.w, 1.0f / g_post.aoA.h);
 	postUniform2f(g_post.compositeProg, "uAOSize", g_post.aoA.w, g_post.aoA.h);
 	postUniform1f(g_post.compositeProg, "uAOStrength", ao ? gfx.aoStrength : 0.0f);

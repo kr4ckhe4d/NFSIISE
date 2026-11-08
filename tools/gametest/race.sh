@@ -13,6 +13,7 @@
 #   MODELS=dir      replacement car models to install (copied to <settings>/models)
 #   TEXTURES=dir    HD textures to install (copied to <settings>/textures)
 #   SKIES=dir       skies to install (copied to <settings>/skies)
+#   WAIT=ms         time from starting the race to the screenshot (default 20000)
 #   KEEP=1          leave the game running after the screenshot (drive it with tools/gfxtest/xkey)
 #   BIN=cmd         game command (default ./nfs2se; e.g. "gdb -batch -x cmds --args ./nfs2se")
 #
@@ -59,7 +60,7 @@ for try in 1 2 3; do
 	sleep 8
 	# Title -> main menu -> location -> track -> race
 	"$XKEY" Escape sleep:3000 Return sleep:4500 Down sleep:900 Return sleep:5000 $RIGHTS \
-		Down Down Down Down Down sleep:800 Return sleep:5500 Down Down Down sleep:800 Return sleep:20000
+		Down Down Down Down Down sleep:800 Return sleep:5500 Down Down Down sleep:800 Return sleep:${WAIT:-20000}
 	[[ "${CAMERA:-}" == "chase" ]] && "$XKEY" c sleep:2000
 	import -window root "$OUT/race.png"
 	# In a race the red OMEGA timer panel is at the top of the 4:3 HUD

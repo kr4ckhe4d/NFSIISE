@@ -27,7 +27,7 @@ TRACK=1 CAMERA=chase tools/gametest/race.sh                     # Outback, chase
 TRACK=0 CONF="Wetness=1 Reflections=1.5" tools/gametest/race.sh  # Proving Grounds (rain), extra config
 MODELS=~/.nfs2se/models KEEP=1 tools/gametest/race.sh NFS2SE_SOMETHING=1   # keep running, env var for the game
 ```
-See the header of `tools/gametest/race.sh` for all options (`SKIES=dir` installs skies). Tracks by number of "Right" presses in the location menu:
+See the header of `tools/gametest/race.sh` for all options (`SKIES=dir` installs skies, `WAIT=ms` sets the time from the start to the screenshot, e.g. 5000 for the pre-race fly-by). Tracks by number of "Right" presses in the location menu:
 0 Proving Grounds (night, rain), 1 Outback (sunset), 2 beach, 3 tunnel, 4 city (rain + low sun), 5 cliffs, 6 market.
 Player car is the McLaren F1 (`mcf1`); start position is last (8/8).
 

@@ -21,7 +21,8 @@ first 3D triangle of the view          -> skyDrawPending(): full-view pass, pano
 | `yaw` | rotation in degrees (panorama azimuth = world azimuth + yaw); used when `auto_yaw=0` or no sun is seen |
 | `sun_azimuth`, `sun_elevation` | the panorama's sun (brightest pixel), written by make_sky |
 | `horizon_blend` | `from to` elevations (degrees) where the panorama fades in over the game's backdrop |
-| `auto_yaw` | 1: measure the game's sun and rotate the panorama to match (needs a visible sun/glow); 0 for overcast |
+| `auto_yaw` | 1: measure the game's sun (gradient glow) and rotate the panorama to match; 0 for overcast |
+| `game_fog` | share of the game's fog colour in the sky fog (default 0.5) |
 
 Image encoding: linear HDR * brightness scale -> `c / (1 + 0.75 c)` -> gamma 1/2.2 -> 8 bit. This is the inverse of
 the post-processing's `expandHDR` (white = 4), so up to 4x white survives and bright sky areas drive bloom/shafts.
@@ -48,11 +49,23 @@ panorama at its first 3D triangle. `horizon_blend` in sky files is currently unu
 - The game's backdrop is queued in its sorted render list, so drawing in the hook gets covered; the draw happens
   in `worldMask()` when the first non-flat (3D) triangle of the view arrives.
 
-## Sun alignment (`skyAlign`)
-For up to 10 s after the first frame on a track the panorama is not drawn; each frame the post-processing sky probe
-(texel 1: sun uv, coverage, spread of very bright sky pixels) of the game's own sky is converted to a world azimuth.
-After 20 measurements (coverage > 0.002, spread < 0.25, outliers > 90 deg rejected) `yaw = sun_azimuth - measured`.
-Without a measurement the configured yaw is used. Outback measured ~87 deg, beach ~151, city ~34.
+## Sun alignment (`skyObserveGradient` / `skyProcessGradient`)
+The game's sky gradient triangles (untextured, skipped while a panorama is drawn) carry per-vertex colours with the
+sun glow brightest. For the main view the brightest gradient vertex (if clearly brighter than the darkest: max >
+1.15 min + 6) is converted to a world azimuth at the first 3D triangle; `yaw = sun_azimuth - measured` as a running
+average, locked after 30 views (300 views without a glow keep the configured yaw). The panorama is drawn from the
+first frame. (Earlier versions hid the panorama for up to 10 s and used the post-processing sky probe - users saw
+the old sky at the race start.) Outback measures ~92 deg, beach ~165.
+
+## Sky fog and haze
+Distant geometry is faded by the game's per-pixel fog. With a panorama the game shader's fog colour becomes, per
+pixel, `mix(panorama near the horizon in the pixel's direction, game fog colour, game_fog)` (blurred copy, elevation
+clamped to 0.5-6 deg; `game_fog` from the sky file, default 0.5). The game also draws translucent sky-glow layers
+with full fog; with a pure panorama colour (`game_fog=0`) they turn neutral and the sunset tint disappears, with the
+game's colour only (the original) distant mountains/buildings look like pasted cut-outs against the panorama.
+`skySetFog()` sets the uniforms (camera, projection, viewport, clip window) for the view whose sky was drawn
+(texture unit 8). The post-processing haze also fades towards the panorama in the pixel's direction (mixed 50/50
+with the sky probe average).
 
 ## Image-based lighting (car models)
 At load, `skyBuildIbl` decodes the sky image to linear HDR and makes three smaller copies with the same encoding:

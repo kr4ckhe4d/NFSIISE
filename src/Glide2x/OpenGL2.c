@@ -173,6 +173,15 @@ const char g_fShaderSrc[] =
 	"varying float vOow;\n"
 	"uniform sampler2D uFogTable;\n"
 	"uniform float uPerPixelFog;\n"
+	/* Sky panorama (Sky.c): distant geometry fades into the sky behind it instead of the game's fog colour */
+	"uniform float uSkyFog;\n"
+	"uniform sampler2D uSkyFogTex;\n"
+	"uniform mat4 uSkyFogCam;\n"      /* Camera -> world */
+	"uniform vec4 uSkyFogProj;\n"     /* Game projection: scale X, scale Y, center X, center Y */
+	"uniform vec4 uSkyFogViewport;\n" /* GL viewport of the view: x, y, width, height */
+	"uniform vec4 uSkyFogClip;\n"     /* Its clip window in game units: x, y, width, height */
+	"uniform vec2 uSkyFogParams;\n"   /* Panorama yaw (radians), elevation of its bottom row (degrees) */
+	"uniform float uSkyFogMix;\n"     /* How much of the game's fog colour stays (its sky glow layers use it too) */
 	"#endif\n"
 
 	"void main()\n"
@@ -202,7 +211,18 @@ const char g_fShaderSrc[] =
 			"fog = texture2D(uFogTable, (vec2(lo, hi) + 0.5) / 256.0).r;\n"
 		"}\n"
 	"#endif\n"
-		"ret.rgb = mix(ret.rgb, uFogColor, fog * uFogEnabled);\n"
+		"vec3 fogColor = uFogColor;\n"
+	"#ifdef ENHANCED\n"
+		"if (uSkyFog > 0.5)\n"
+		"{\n"
+			"vec2 g = uSkyFogClip.xy + vec2((gl_FragCoord.x - uSkyFogViewport.x) / uSkyFogViewport.z, 1.0 - (gl_FragCoord.y - uSkyFogViewport.y) / uSkyFogViewport.w) * uSkyFogClip.zw;\n"
+			"vec3 d = normalize((uSkyFogCam * vec4((g.x - uSkyFogProj.z) / uSkyFogProj.x, (g.y - uSkyFogProj.w) / uSkyFogProj.y, 1.0, 0.0)).xyz);\n"
+			"float el = clamp(degrees(asin(clamp(d.y, -1.0, 1.0))), 0.5, 6.0);\n"
+			"vec2 uv = vec2(fract((atan(d.x, d.z) + uSkyFogParams.x) / 6.2831853 + 0.5), (90.0 - el) / (90.0 - uSkyFogParams.y));\n"
+			"fogColor = mix(texture2D(uSkyFogTex, uv).rgb, uFogColor, uSkyFogMix);\n"
+		"}\n"
+	"#endif\n"
+		"ret.rgb = mix(ret.rgb, fogColor, fog * uFogEnabled);\n"
 
 	"#ifdef ENHANCED\n"
 		"gl_FragData[0] = ret;\n"
@@ -1162,6 +1182,8 @@ REALIGN STDCALL void grBufferSwap(int swap_interval)
 {
 	carModelsDraw(false);
 #ifdef GL2_ENHANCED
+	if (g_skyReplacing)
+		skySetFog(false);
 	g_skyReplacing = false;
 #endif
 // 	fprintf(stderr, "grBufferSwap: [%d]\n", g_trianglesCount);
@@ -1310,6 +1332,7 @@ static inline uint8_t worldMask(const GrVertex *a, const GrVertex *b, const GrVe
 	{
 		/* After the sky backdrop, before the first 3D triangle of the view: the sky, then opaque car models */
 		skyDrawPending();
+		skyProcessGradient();
 		carModelsDraw(true);
 	}
 #endif
@@ -1359,6 +1382,8 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 	if (!g_seen3D && g_prevFrameHas3D && a->oow >= 0.999f && b->oow >= 0.999f && c->oow >= 0.999f)
 	{
 		skyDrawPending();
+		if (g_textureEnabled < 0.5f)
+			skyObserveGradient(a, b, c);
 		if (g_skyReplacing && (g_textureEnabled < 0.5f || g_boundAlphaMode == AlphaOpaque))
 			return;
 	}
