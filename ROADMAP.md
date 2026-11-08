@@ -78,7 +78,9 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Bottom HUD boxes (minimap + name, record) pinned to the screen corners in a race (`HudCorners`); the top bar
       and the mirror stay centred (the bar is one graphic)
 - [x] Car models no longer drawn over the pause menu (pending cars are drawn before 2D after the 3D view)
-- [ ] Pause menu "quit to system" doesn't exit (pre-existing upstream bug)
+- [x] Pause menu: CONTINUE / QUIT / QUIT TO SYSTEM did nothing and the pause view spun: a keyboard's extra HID
+      interface ("... System Control", axis resting at -32768) was opened as joystick = Left held forever; such
+      devices are now skipped (DInput.c `isNotGameController`)
 
 ## Notes
 - Keep this file updated with every milestone commit (mark items, add the commit hash).

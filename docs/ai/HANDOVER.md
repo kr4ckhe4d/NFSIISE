@@ -25,8 +25,7 @@ State after the second session (terrain on all tracks, night, shadows, motion bl
   mountains/tiles) led to the sky fog, gradient-based sun alignment and the terrain work.
 - Whether Outback's real geography (mostly flat; Uluru east ~11 km, Kata Tjuta west ~20 km) is dramatic enough, or
   they want another place / rotation / height exaggeration.
-- Answer still pending from long ago: in the pause menu, does Enter on CONTINUE resume the race? (Context for the
-  pre-existing upstream bug: "quit to system" doesn't exit.)
+- Pause menu fixed (c.f. ROADMAP usability): the owner's keyboard exposes a "System Control" joystick.
 - Models for the other cars: the owner has to supply them (or name sources); only `mcf1` is replaced.
 
 - **Outback "bugs"** (2026-11-08, owner at 5120x1440 = 32:9): later in a race, yellow fly-like sprites fill the sky

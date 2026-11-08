@@ -37,6 +37,13 @@ stub in `src/Glide2x/OpenGL1.c` (the GL1 renderer is also linked in some builds)
   with the camera) and **queues** its polygons in the sorted render list (they are drawn first, being farthest), so
   anything drawn in the hook itself is covered by the backdrop. The renderer draws the panorama at the first 3D
   triangle of the view instead (`worldMask()` -> `skyDrawPending()`).
+- Controls: `sub_45BB50` samples the controls (timer thread `sub_453840`) into per-tick bitmasks, ring
+  `dword_512848[tick & 31]` (write index `dword_512A3C`, read index `dword_540F4C`). Input devices: table `off_4D98A4`
+  ("Null", "Analog", "Button", "Key", "Intface" = `sub_4777B0`: key state `byte_4DB2F4[scancode]` or joystick
+  direction flags `dword_557968`). Interface bits: 1 up, 2 down, 3 left, 4 right, 5 select (Return), 6 Esc;
+  `sub_45B910` = held with repeat, `sub_45B980` = newly pressed. Pause menu: `sub_45FA80` (item `dword_512AA8`,
+  sub-menu `dword_512AB4`), called by `sub_472220` (result 1 continue, 2 restart, 3 quit, 4 quit to system). A held
+  Left is handled before Select, and Left/Right turn the pause view - a phantom joystick axis broke both.
 - Track number: the wrapper sees the game open `gamedata\tracks\...\trNN.*` (`convertFilePath`, `gfxCurrentTrack`).
   Location menu order -> track: 0 tr00 Proving Grounds, 1 tr02 Outback, 2 tr04 beach, 3 tr05, 4 tr03 city,
   5 tr06 cliffs, 6 tr07 market (7 wraps to tr00; tr08 not reachable from a fresh profile).

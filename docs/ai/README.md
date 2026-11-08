@@ -81,4 +81,4 @@ corner HUD, rain spray and camera drops, car contact shadows, 3D trees.
 Details, open items and what the owner still has to check: [HANDOVER.md](HANDOVER.md) and
 [ROADMAP.md](../../ROADMAP.md).
 
-Known pre-existing bug (upstream too): in-race pause menu "quit to system" doesn't exit.
+Pause menu fixed (it was a phantom joystick, see reverse-engineering.md).

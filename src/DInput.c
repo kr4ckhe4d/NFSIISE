@@ -182,6 +182,24 @@ static void maybeInitEffect(DirectInputDevice *dev, DirectInputEffect *eff)
 	}
 }
 
+/*
+ * Input devices that SDL exposes as joysticks but are not game controllers: touchpads, and the extra HID interfaces
+ * of keyboards and mice (e.g. "Keychron Wukong System Control": one axis resting at -32768 = Left held forever, which
+ * spun the pause view and blocked selecting in the pause menu).
+ */
+static BOOL isNotGameController(const char *name)
+{
+	static const char *const ignored[] = {"SynPS/2", "System Control", "Consumer Control", "Keyboard", "Mouse", "Touchpad"};
+	uint32_t i;
+	if (!name)
+		return false;
+	for (i = 0; i < sizeof ignored / sizeof *ignored; ++i)
+		if (strstr(name, ignored[i]))
+			return true;
+	return false;
+}
+
+
 static void ensureJoyOpen(DirectInputDevice *dev)
 {
 	int32_t joyIdx = dev->guid.b;
@@ -230,7 +248,7 @@ static void ensureJoyOpen(DirectInputDevice *dev)
 			if (n > 1 && name && strcmp(name, "Android Accelerometer") == 0)
 				continue;
 #else
-			if (name && strstr(name, "SynPS/2"))
+			if (isNotGameController(name))
 				continue;
 #endif
 
