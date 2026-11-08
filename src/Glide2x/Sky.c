@@ -47,6 +47,13 @@ static struct
 	BOOL pending;
 	float camToWorld[16], proj[4];
 } g_skyView;
+
+/* Camera of the main (full width) view of the frame, for the post-processing */
+static struct
+{
+	BOOL valid;
+	float camToWorld[16];
+} g_skyMain;
 static GLuint g_skyProg;
 static BOOL g_skyProgFailed;
 
@@ -466,6 +473,11 @@ static void skyDrawPending()
 	if (!g_skyView.pending)
 		return;
 	g_skyView.pending = false;
+	if (g_fullWidthView)
+	{
+		memcpy(g_skyMain.camToWorld, g_skyView.camToWorld, sizeof g_skyMain.camToWorld);
+		g_skyMain.valid = true;
+	}
 	if (!skyAlign(g_skyView.camToWorld) || !skyCreateProgram())
 		return;
 
@@ -494,4 +506,19 @@ static void skyDrawPending()
 	useGameProgram(true);
 	glUniform1f(g_uTextureEnabledLoc, g_textureEnabled);
 	glDepthMask(g_depthMask);
+}
+
+static BOOL skyMainPanorama(int32_t unit, float camToWorld[16], float *yawRadians, float *elevationMin)
+{
+	if (!gfx.skies || !g_sky.ibl[0] || g_sky.track != gfxCurrentTrack || !g_skyMain.valid || !g_sky.aligned)
+		return false;
+	glActiveTexture(GL_TEXTURE0 + unit);
+	glBindTexture(GL_TEXTURE_2D, g_sky.ibl[0]);
+	glActiveTexture(GL_TEXTURE0 + unit + 1);
+	glBindTexture(GL_TEXTURE_2D, g_sky.ibl[1]);
+	glActiveTexture(GL_TEXTURE0);
+	memcpy(camToWorld, g_skyMain.camToWorld, sizeof(float) * 16);
+	*yawRadians = g_sky.yaw * (float)M_PI / 180.0f;
+	*elevationMin = g_sky.elevationMin;
+	return true;
 }

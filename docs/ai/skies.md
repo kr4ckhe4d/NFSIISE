@@ -57,10 +57,15 @@ by roughness (sharp -> blurred -> diffuse), diffuse light from the diffuse copy 
 from the sharp copy at the sun direction; below the horizon it uses 15% of the average sky as the ground. The
 game-exposure ambient (see car-models.md) * 0.6 remains a minimum, so cars stay visible under night skies.
 
+## Road reflections
+`skyDrawPending` records the main (full width) view's camera in `g_skyMain`; `skyMainPanorama()` binds the sharp and
+blurred copies for the SSR pass (units 3, 4). SSR rays that miss use the panorama in the reflected direction
+(sharp when wet, blurred when dry, average sky below the horizon) instead of searching the screen for sky pixels.
+Mirror pixels keep the screen search.
+
 ## Known issues / ideas
 - A thin band of the game's sky gradient remains right at the horizon where the backdrop has no terrain. Idea:
   classify backdrop pixels as sky vs terrain (colour vs the game's sky gradient above) and blend per pixel.
 - City (tr03) is very bright towards the low sun; brightness per track should be tuned on the real display.
-- SSR misses on the road could sample the panorama instead of the screen / average sky.
 - Night tracks: the minimum ambient makes cars look flat; local lights (street lamps, headlights) would help.
 - The mirror view uses the same sky file; not checked visually.

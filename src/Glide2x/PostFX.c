@@ -304,6 +304,11 @@ static const char g_postSSRSrc[] =
 	"uniform float uWhite;\n"
 	"uniform float uStrength;\n"
 	"uniform float uWetness;\n"
+	"uniform sampler2D uPano0;\n"
+	"uniform sampler2D uPano1;\n"
+	"uniform float uPanoOn;\n"
+	"uniform mat4 uPanoCam;\n"
+	"uniform vec2 uPanoParams;\n"
 	"vec3 viewPosAt(vec2 uv) { return viewPos(uv, abs(texture2D(uLin, uv).r)); }\n"
 	/* Inside the current view (a ray from the main view must not pick up the mirror) */
 	"bool inView(vec2 uv) { return all(greaterThan(uv, gR.xy)) && all(lessThan(uv, gR.zw)) && (gSub || !inSub(uv)); }\n"
@@ -351,6 +356,17 @@ static const char g_postSSRSrc[] =
 	/* Environment: the sky in the reflected direction, searched upwards past objects on the horizon */
 	"	vec3 skyAvg = texture2D(uSky, vec2(0.5 / 4.0, 0.5)).rgb;\n"
 	"	vec3 env = skyAvg;\n"
+	/* Sky panorama of the track (Sky.c) in the reflected direction: sharp when wet, blurred when dry */
+	"	if (uPanoOn > 0.5 && !gSub)\n"
+	"	{\n"
+	"		vec3 w = normalize((uPanoCam * vec4(R, 0.0)).xyz);\n"
+	"		float el = degrees(asin(clamp(w.y, -1.0, 1.0)));\n"
+	"		vec2 puv = vec2(fract((atan(w.x, w.z) + uPanoParams.x) / 6.2831853 + 0.5), clamp((90.0 - el) / (90.0 - uPanoParams.y), 0.0, 0.999));\n"
+	"		vec3 p0 = expandHDR(toLinear(texture2D(uPano0, puv).rgb), uWhite);\n"
+	"		vec3 p1 = expandHDR(toLinear(texture2D(uPano1, puv).rgb), uWhite);\n"
+	"		env = mix(skyAvg, mix(p1, p0, smoothstep(0.2, 0.7, uWetness)), smoothstep(-2.0, 1.0, el));\n"
+	"	}\n"
+	"	else\n"
 	"	if (R.z > 0.01)\n"
 	"	{\n"
 	"		vec2 uvInf = project(R);\n"
@@ -1167,6 +1183,9 @@ static void postResolve()
 }
 
 /* Main view projection, and the sub-view (rear-view mirror) drawn in this frame */
+/* Sky.c: binds the track's sky panorama (sharp, blurred) for the main view; false without one */
+static BOOL skyMainPanorama(int32_t unit, float camToWorld[16], float *yawRadians, float *elevationMin);
+
 static void postViewUniforms(GLuint prog, float projX, float projY)
 {
 	const float *r = g_subViewRect;
@@ -1228,6 +1247,19 @@ static void postEffects()
 		postUniform1f(g_post.ssrProg, "uWhite", whiteS);
 		postUniform1f(g_post.ssrProg, "uStrength", gfx.reflections);
 		postUniform1f(g_post.ssrProg, "uWetness", wet);
+		{
+			/* Sky panorama of the main view for rays that leave the screen */
+			float cam[16], yaw = 0.0f, elevationMin = 0.0f;
+			const BOOL pano = skyMainPanorama(3, cam, &yaw, &elevationMin);
+			postUniform1f(g_post.ssrProg, "uPanoOn", pano ? 1.0f : 0.0f);
+			postUniform1i(g_post.ssrProg, "uPano0", 3);
+			postUniform1i(g_post.ssrProg, "uPano1", 4);
+			if (pano)
+			{
+				glUniformMatrix4fv(glGetUniformLocation(g_post.ssrProg, "uPanoCam"), 1, GL_FALSE, cam);
+				postUniform2f(g_post.ssrProg, "uPanoParams", yaw, elevationMin);
+			}
+		}
 		postBindTexture(0, g_post.aoLin.tex);
 		postBindTexture(1, g_post.sceneColor);
 		postBindTexture(2, g_post.sky.tex);
