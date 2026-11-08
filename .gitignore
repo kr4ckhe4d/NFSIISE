@@ -11,3 +11,4 @@ src/Android/app/build
 src/Android/app/jni/SDL
 src/Android/app/src/main/AndroidManifest.xml
 Need For Speed II SE/textures
+__pycache__/
