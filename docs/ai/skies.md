@@ -38,8 +38,8 @@ The game's backdrop has two layers: an opaque sky gradient and terrain textures 
 part is transparent. With a panorama, `grDrawTriangle` draws it (opaque) at the first backdrop triangle of a view
 (flat `oow >= 0.999` before any 3D, race frames only), then skips backdrop triangles that are untextured or use an
 opaque texture (`g_boundAlphaMode == AlphaOpaque`) and keeps the transparent terrain ones over it. While the sun is
-being aligned nothing is skipped (the game's sun must stay visible). `horizon_blend` is only used for the fallback
-(panorama drawn at the first 3D triangle when a view has no backdrop triangles).
+being aligned nothing is skipped (the game's sun must stay visible). A view without backdrop triangles gets the
+panorama at its first 3D triangle. `horizon_blend` in sky files is currently unused (the panorama is opaque).
 
 - Camera space direction of a pixel from the game's projection (`dword_4D5294`.. captured in the hook) and the clip
   window; world direction with the camera matrix (see reverse-engineering.md); azimuth `atan(x, z)`, elevation
