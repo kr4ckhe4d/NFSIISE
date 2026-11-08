@@ -33,7 +33,9 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Road centreline from the track's .col file; real DEM terrain around the track (Outback: Uluru / Kata Tjuta)
 - [x] Hide the game's flat stand-ins (100 m terrain ring, large mountain cards); lighter game fog + dissolve
 - [ ] Check Outback on the real GPU; tune fog/dissolve and the choice of place
-- [ ] Other tracks: real places and their stand-in textures
+- [x] Other tracks: real places for all seven (tools/terrain/install-terrain.sh), palettes (desert, temperate,
+      alpine with snow line, mediterranean), sea from the DEM, coastal tracks turned to match the game's water
+- [ ] Owner check of each track on the real GPU (place, rotation, colours)
 - [ ] Index the mesh (smaller files), better surface colours
 
 ## 2. Car polish `[ ]`

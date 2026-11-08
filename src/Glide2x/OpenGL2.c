@@ -1045,6 +1045,14 @@ static void captureFrameStart()
 	if (g_capFile)
 		fprintf(g_capFile, "# virtualWidth=%g widescreenScale=%g track=%d proj=%g,%g,%g,%g\n# outcome tex texOn alphaMode blendDst depthMask fog clip(x0,y0,x1,y1) full seen3D | x y oow alpha (x3)\n",
 			g_virtualWidth, widescreenScale, gfxCurrentTrack, dword_4D5294, flt_4D5298, flt_4D529C, flt_4D52A0);
+#ifdef GL2_ENHANCED
+	if (g_capFile)
+	{
+		const float *m = g_skyView.camToWorld;
+		fprintf(g_capFile, "# camera pos=%g,%g,%g camToWorld rows=%g,%g,%g;%g,%g,%g;%g,%g,%g\n", g_skyView.camPos[0], g_skyView.camPos[1], g_skyView.camPos[2],
+			m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
+	}
+#endif
 }
 static void captureTriangle(const GrVertex *a, const GrVertex *b, const GrVertex *c, const char *outcome)
 {

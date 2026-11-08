@@ -1,6 +1,7 @@
 # Distant terrain from real elevation data
 
-Status: prototype on Outback (tr02). Code: `src/Glide2x/Terrain.c` (+ terrain support in `CarModels.c`, game shader
+Status: all seven tracks (places in `tools/terrain/install-terrain.sh`); Outback checked by the owner, the others
+only headless. Code: `src/Glide2x/Terrain.c` (+ terrain support in `CarModels.c`, game shader
 in `OpenGL2.c`); tools: `tools/terrain/`.
 
 ## Why
@@ -44,6 +45,26 @@ Log, per texture hash, the nearest/farthest distance at which it is drawn (tempo
 using `g_boundHash` and `1/oow`): the ring textures are always exactly 100 m away; large flat cards are drawn far
 beyond the ~500 m draw distance (Outback's grey card up to 1.4 km). A screen-point picker (log the hash of triangles
 covering a game coordinate) identifies a specific object. View candidates in `<settings>/texdump/` (TextureDump=1).
+
+## Places per track
+| Track | Look | Place | Options |
+|---|---|---|---|
+| tr00 | Proving Grounds (test circuit, trees) | Eifel at the Nuerburgring | temperate |
+| tr02 | Outback | between Uluru and Kata Tjuta | desert |
+| tr03 | city by the water | Vancouver (English Bay west, North Shore mountains) | temperate, snow line 1600 |
+| tr04 | tropical beach | Honolulu / Waikiki | temperate, rotation -90 (sea west, like the game's water) |
+| tr05 | pine forest, snowy mountains, tunnel | Banff | alpine, snow line 2500 |
+| tr06 | Greek temple, sea cliffs | Cape Sounion | mediterranean |
+| tr07 | market with prayer flags | Namche Bazaar (Everest 20 km) | alpine, snow line 5200 |
+
+Track look -> trNN: Alt+D capture header has `track=`. Menu order of locations (race.sh `TRACK`): 0 tr00, 1 tr02,
+2 tr04, 3 tr05, 4 tr03, 5 tr06, 6 tr07. None of the six new tracks has a big far stand-in card at the start (all far
+textures are within the ~500 m draw distance); their 100 m rings are hidden automatically.
+
+Sea side: project the water triangles of an Alt+D capture into the world (capture header has the camera position and
+matrix; camera X/Y/Z = ((x - cx) / sx * Z, (y - cy) / sy * Z, 1 / oow), world = pos + X*row0 + Y*row1 + Z*row2),
+compare their centroid with the track centre and set `--rotation` so the real sea is on that side
+(rotation r: world west shows geographic south for r = -90).
 
 ## Open issues
 - Outback's surroundings are mostly flat in reality: Uluru (east, ~2 deg high) and Kata Tjuta (west) are the

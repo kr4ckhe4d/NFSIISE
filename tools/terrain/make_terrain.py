@@ -1,22 +1,27 @@
 # Blender (headless): builds real-world distant terrain around a track from public elevation data.
 #
 #   blender -b --python make_terrain.py -- <trNN.col> <lat> <lon> <out_dir> [--radius 22000] [--grid 512]
-#                                          [--rotation 0] [--texture 2048]
+#                                          [--rotation 0] [--texture 2048] [--palette desert]
+#                                          [--snowline 4000] [--exaggerate 1]
 #
 # <lat> <lon>: the real place at the centre of the track (north = world +Z, east = world +X; --rotation turns the
 # terrain clockwise in degrees). Elevation: AWS Terrain Tiles (Terrarium PNG, open data, Mapzen/Tilezen sources).
 # Writes out_dir/model.cmdl (the renderer's model format, world coordinates in metres) and out_dir/terrain.png.
 # Near the track the terrain stays below the track's ground (the game's scenery covers it); the real relief takes
-# over from ~400 m. Colours: red sand, scrub and rock by slope and height (no imagery needed).
+# over from ~400 m. Colours by slope and height (no imagery needed), --palette: desert (red sand, scrub, rock),
+# temperate (fields, forest, rock), alpine (forest, meadows, rock, snow above --snowline metres above sea level),
+# mediterranean (dry scrub, olive, ochre rock). Real elevation at or below sea level becomes flat sea.
+# --exaggerate scales the real relief (1 = true heights).
 import bpy, sys, os, math, struct, urllib.request, io
 import numpy as np
 
 argv = sys.argv[sys.argv.index('--') + 1:]
 col_path, lat0, lon0, out = argv[0], float(argv[1]), float(argv[2]), argv[3]
-opts = dict(radius=22000.0, grid=512, rotation=0.0, texture=2048)
+opts = dict(radius=22000.0, grid=512, rotation=0.0, texture=2048, palette='desert', snowline=4000.0, exaggerate=1.0)
 i = 4
 while i < len(argv):
-    opts[argv[i].lstrip('-')] = float(argv[i + 1])
+    k = argv[i].lstrip('-')
+    opts[k] = argv[i + 1] if isinstance(opts.get(k), str) else float(argv[i + 1])
     i += 2
 os.makedirs(out, exist_ok=True)
 R, N, TEX = opts['radius'], int(opts['grid']), int(opts['texture'])
@@ -95,8 +100,9 @@ rot = math.radians(opts['rotation'])
 ex = gx * math.cos(rot) + gz * math.sin(rot)    # geographic east of a world position
 nz = -gx * math.sin(rot) + gz * math.cos(rot)   # geographic north
 dem = elevation(lat0 + nz / m_per_deg_lat, lon0 + ex / m_per_deg_lon)
+sea = dem <= 0.5
 base = float(np.median(dem[np.hypot(gx, gz) < 3000]))
-rel = dem - base
+rel = (np.maximum(dem, 0.0) - base) * opts['exaggerate']
 print('base elevation', base, 'relief', rel.min(), rel.max())
 
 # Distance to the track and the track's height nearby (normalized convolution of the road heights)
@@ -137,7 +143,7 @@ s = np.clip((dist - 400.0) / 2100.0, 0, 1); s = s * s * (3 - 2 * s)
 height = track_y - 6.0 - 20.0 * (dist < 250) * (1 - dist / 250.0) + s * rel
 print('distance to track: min', dist.min(), 'max', dist.max())
 
-# Colour: red sand, scrub speckle, rock on slopes / high relief
+# Colours by slope, height and noise
 gy_, gx_ = np.gradient(height, cell)
 slope = np.hypot(gx_, gy_)
 rng = np.random.default_rng(2)
@@ -145,13 +151,29 @@ def noise(scale):
     n = rng.standard_normal((N // scale + 2, N // scale + 2))
     return np.kron(n, np.ones((scale, scale)))[:N, :N]
 nz1, nz2 = blur(noise(4), 2), blur(noise(16), 6)
-sand = np.array([0.62, 0.30, 0.15]); scrub = np.array([0.42, 0.36, 0.22]); rock = np.array([0.55, 0.22, 0.10])
-dry = np.array([0.70, 0.45, 0.30])
-col_ = sand * (1 + 0.15 * nz1[..., None])
-col_ = col_ * (1 - np.clip(0.45 + 0.6 * nz2, 0, 0.7)[..., None] * 0.6) + scrub * np.clip(0.45 + 0.6 * nz2, 0, 0.7)[..., None] * 0.6
+def mix(a, b, w):
+    w = np.clip(w, 0, 1)[..., None]
+    return a * (1 - w) + b * w
+PAL = {
+    # ground, patches (noise), dry/light speckle, rock (slopes)
+    'desert':        ([0.62, 0.30, 0.15], [0.42, 0.36, 0.22], [0.70, 0.45, 0.30], [0.55, 0.22, 0.10]),
+    'temperate':     ([0.30, 0.38, 0.16], [0.14, 0.22, 0.09], [0.48, 0.46, 0.26], [0.40, 0.38, 0.34]),
+    'alpine':        ([0.20, 0.30, 0.13], [0.08, 0.15, 0.07], [0.40, 0.42, 0.22], [0.38, 0.36, 0.34]),
+    'mediterranean': ([0.55, 0.47, 0.30], [0.25, 0.30, 0.15], [0.66, 0.58, 0.42], [0.62, 0.52, 0.38]),
+}
+ground, patch, dry, rock = (np.array(c) for c in PAL[opts['palette']])
+col_ = ground * (1 + 0.15 * nz1[..., None])
+col_ = mix(col_, patch, np.clip(0.45 + 0.6 * nz2, 0, 0.7) * 0.6)
 col_ = col_ * 0.85 + dry * 0.15 * np.clip(nz1, 0, 1)[..., None]
-r_w = np.clip((slope - 0.25) / 0.35, 0, 1)[..., None]
-col_ = col_ * (1 - r_w) + rock * (0.8 + 0.2 * nz1[..., None]) * r_w
+col_ = mix(col_, rock * (0.8 + 0.2 * nz1[..., None]), (slope - 0.25) / 0.35)
+# Snow: above the snow line (real metres above sea level), less on steep slopes
+alt = np.maximum(dem, 0.0)
+snow = np.clip((alt - opts['snowline'] + 150 * nz2) / 300.0, 0, 1) * np.clip(1.3 - slope, 0, 1)
+col_ = mix(col_, np.array([0.85, 0.87, 0.90]), snow)
+# Sea: flat at sea level, dark blue-grey (beaches lighter)
+coast = np.clip(1.0 - blur(sea.astype(float), 2) * 2.0, 0, 1) * (~sea)
+col_ = mix(col_, np.array([0.70, 0.64, 0.50]), coast * (opts['palette'] != 'alpine') * 0.6)
+col_ = np.where(sea[..., None], np.array([0.06, 0.12, 0.16]) * (1 + 0.1 * nz1[..., None]), col_)
 col_ = np.clip(col_, 0, 1)
 # Texture (upsampled grid colours)
 img = bpy.data.images.new('terrain', TEX, TEX, alpha=False, float_buffer=False)
