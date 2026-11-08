@@ -80,7 +80,8 @@ GfxSettings gfx = {
 	true,  /* hudCorners */
 	true,  /* carModels */
 	true,  /* skies */
-	true   /* terrain */
+	true,  /* terrain */
+	true   /* trees */
 };
 /* X projection scale applied by the game code to full-width 3D views (set by the renderer) */
 float widescreenScale = 1.0f;
@@ -437,7 +438,8 @@ static BOOL parseGfxSetting(const char *line)
 		parseGfxBool(line, "HudCorners", &gfx.hudCorners) ||
 		parseGfxBool(line, "CarModels", &gfx.carModels) ||
 		parseGfxBool(line, "Skies", &gfx.skies) ||
-		parseGfxBool(line, "Terrain", &gfx.terrain);
+		parseGfxBool(line, "Terrain", &gfx.terrain) ||
+		parseGfxBool(line, "Trees", &gfx.trees);
 }
 
 #ifdef SWAP_WINDOW_AND_GL_THREAD

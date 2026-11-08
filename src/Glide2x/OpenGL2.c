@@ -479,6 +479,7 @@ static void useGameProgram(BOOL gameProgram);
 # include "Sky.c"
 # include "CarModels.c"
 # include "Spray.c"
+# include "Trees.c"
 # include "Terrain.c"
 #endif
 
@@ -1558,6 +1559,13 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 	{
 		if (g_capFile)
 			captureTriangle(a, b, c, "terrain-hidden");
+		return;
+	}
+	/* Tree billboards replaced by 3D trees */
+	if (a->oow < 0.999f && treesTriangle(a, b, c))
+	{
+		if (g_capFile)
+			captureTriangle(a, b, c, "tree-replaced");
 		return;
 	}
 #endif

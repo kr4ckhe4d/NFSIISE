@@ -91,6 +91,7 @@ typedef struct
 	BOOL carModels;           /* Replacement car models from "<settings>/models/<car>/model.cmdl" */
 	BOOL skies;               /* High resolution skies from "<settings>/skies/trNN.txt" */
 	BOOL terrain;             /* Distant terrain from "<settings>/terrain/trNN/" */
+	BOOL trees;               /* 3D trees replacing the billboards listed in "<settings>/trees/trNN.txt" */
 } GfxSettings;
 extern GfxSettings gfx;
 extern int32_t gfxCurrentTrack; /* Current track number, -1 if unknown */

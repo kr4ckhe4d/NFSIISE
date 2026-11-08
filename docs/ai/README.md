@@ -14,6 +14,7 @@ Progress is tracked in [ROADMAP.md](../../ROADMAP.md) at the repository root; up
 | File | Contents |
 |---|---|
 | [skies.md](skies.md) | High resolution sky panoramas: hook, drawing, sun alignment, sky files, conversion and install scripts |
+| [trees.md](trees.md) | 3D trees replacing the game's billboards: detection, registry, cutout leaves, models |
 | [terrain.md](terrain.md) | Distant terrain from real elevation data: generator, hiding the game's stand-ins, fog/dissolve |
 | [car-models.md](car-models.md) | Replacing cars with detailed glTF models: pipeline, `.cmdl` format, hooks, fitting, wheels, lighting, adding a new car |
 | [hd-textures.md](hd-textures.md) | HD texture packs: dump, hashing, Real-ESRGAN upscale, replacement loading |
@@ -35,10 +36,13 @@ src/Glide2x/CarModels.c       replacement car models (loader, fitting, wheel ani
 src/Glide2x/Sky.c             sky panoramas (track sky files, sun alignment, drawing after the game's backdrop), IBL,
                               sun direction and camera motion for the post-processing
 src/Glide2x/Terrain.c         distant terrain from real elevation data
+src/Glide2x/Trees.c           3D trees replacing tree billboards
+src/Glide2x/Spray.c           rain spray behind cars, car contact shadows
 src/Wrapper.c / Wrapper.h     config parsing (GfxSettings gfx), window, hotkeys
 tools/car-models/             Blender converter glTF -> .cmdl, CarConcept installer
 tools/skies/                  Blender converter HDR panorama -> game sky, Poly Haven sky set installer
 tools/terrain/                Blender terrain generator (AWS Terrain Tiles), per-track places installer
+tools/trees/                  tree models (Poly Haven reduction, procedural conifer and palm), per-track tables
 tools/hd-textures/upscale.sh  Real-ESRGAN texture pack builder
 tools/formats/nfs2geo.py      VIV/GEO reader/writer/exporter
 tools/gametest/               headless race automation, EGL GPU-selection shim
@@ -72,7 +76,8 @@ in Wrapper.c, and documentation in the template and README.
 
 Done: post-processing suite, Hor+ widescreen, HD texture pipeline, SSR road reflections with automatic rain wetness,
 sun shafts, haze, replacement car models (wheels, IBL, scene reflections), sky panoramas with sky fog, real terrain on
-all tracks, headlights and night darkening, screen-space sun shadows, camera motion blur, Alt+D frame capture.
+all tracks, headlights and night darkening, screen-space sun shadows, camera motion blur, Alt+D frame capture,
+corner HUD, rain spray and camera drops, car contact shadows, 3D trees.
 Details, open items and what the owner still has to check: [HANDOVER.md](HANDOVER.md) and
 [ROADMAP.md](../../ROADMAP.md).
 

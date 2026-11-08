@@ -24,17 +24,32 @@ def mat_params(m):
     a = float(val('Alpha', 1.0)); p['color'] = (c[0], c[1], c[2], a)
     e = val('Emission Color', (0, 0, 0, 1)); es = float(val('Emission Strength', 1.0))
     p['emission'] = (e[0] * es, e[1] * es, e[2] * es)
+    def find_image(socket):
+        # The first image texture behind a socket (through mix/multiply nodes, e.g. glTF vertex colour factors)
+        todo = [l.from_node for l in socket.links] if socket else []
+        seen = set()
+        while todo:
+            node = todo.pop(0)
+            if node.name in seen:
+                continue
+            seen.add(node.name)
+            if node.type == 'TEX_IMAGE' and node.image:
+                return node
+            todo += [l.from_node for i in node.inputs for l in i.links]
+        return None
     link = bsdf.inputs['Base Color'].links
     if link:
-        n = link[0].from_node
-        while n and n.type != 'TEX_IMAGE' and n.inputs and n.inputs[0].links:
-            n = n.inputs[0].links[0].from_node
+        n = find_image(bsdf.inputs['Base Color'])
         if n and n.type == 'TEX_IMAGE' and n.image:
             name = bpy.path.clean_name(n.image.name) + '.png'
             path = os.path.join(out, name)
             if not os.path.exists(path):
                 img = n.image.copy(); img.filepath_raw = path; img.file_format = 'PNG'; img.save()
             p['tex'] = name
+    # Alpha from the texture (leaves): alpha-cutout batch, marked by transmission = -1
+    if bsdf.inputs.get('Alpha') and p['tex'] and find_image(bsdf.inputs['Alpha']):
+        p['transmission'] = -1.0
+        p['color'] = (p['color'][0], p['color'][1], p['color'][2], 1.0)
     return p
 # Wheels: objects named (or parented under) "Wheel<Front|Rear><L|R>..." - group 1..4 = front left, front right,
 # rear left, rear right. Brake pads/calipers steer but don't spin.

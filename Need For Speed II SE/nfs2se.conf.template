@@ -110,6 +110,9 @@
 #Terrain:
 #	1 - Real distant terrain from "<settings directory>/terrain/trNN/" when available (default)
 #	0 - The game's flat distant scenery
+#Trees:
+#	1 - 3D trees instead of the game's tree billboards, from "<settings directory>/trees/trNN.txt" when available (default)
+#	0 - The game's billboards
 #JoystickApplyDeadzone:
 #	Apply game default deadzone for joysticks
 #JoystickDisableAxesInMenu:
@@ -204,6 +207,7 @@ HudCorners=1
 CarModels=1
 Skies=1
 Terrain=1
+Trees=1
 LinuxCOM1=/dev/ttyS0
 LinuxCOM2=/dev/ttyS1
 LinuxCOM3=/dev/ttyUSB0

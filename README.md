@@ -210,6 +210,10 @@ The game shows distant landscape as flat cut-outs (a ring of pictures around the
 
 `tools/terrain/install-terrain.sh` builds it with Blender from AWS Terrain Tiles (open elevation data) into `~/.nfs2se/terrain/trNN/` for all tracks. `Terrain=0` disables it.
 
+### Trees
+
+The game's flat tree pictures can be replaced by 3D trees: broadleaf trees reduced from a Poly Haven scan (CC0), procedural conifers with Poly Haven needle textures and procedural palms. The renderer recognizes the game's tree billboards by texture, places a 3D tree at each, sized to the original, and lights it like the cars. `tools/trees/install-trees.sh` builds them with Blender into `~/.nfs2se/trees/` together with the per-track lists of replaced billboards. `Trees=0` keeps the billboards.
+
 ### Night
 
 On night and dusk tracks (sky file keys, set by `tools/skies/install-skies.sh`) the player's car has low-beam headlights that light the road and the scenery ahead (`headlights=`), and the scenery is darkened to match the night sky while lamps and lit windows stay bright (`night_ambient=`). Proving Grounds uses both, the rainy city a weaker headlight.

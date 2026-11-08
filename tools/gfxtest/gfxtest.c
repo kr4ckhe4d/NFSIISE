@@ -30,7 +30,7 @@ float dpr = 1.0f;
 #ifdef NEW_RENDERER
 GfxSettings gfx = {
 	1.0f, 0, 16, true, true, true, false,
-	true, 1.0f, 2.0f, 0.35f, 1.5f, true, 1.0f, 1.08f, 1.05f, 0.0f, true, 0.35f, 0.2f, 0.0f, 1.0f, -1.0f, 0.6f, 0.25f, 0.5f, 0.5f, 1.0f, 0.5f, 320.0f, true, true, true, true, true
+	true, 1.0f, 2.0f, 0.35f, 1.5f, true, 1.0f, 1.08f, 1.05f, 0.0f, true, 0.35f, 0.2f, 0.0f, 1.0f, -1.0f, 0.6f, 0.25f, 0.5f, 0.5f, 1.0f, 0.5f, 320.0f, true, true, true, true, true, true
 };
 float widescreenScale = 1.0f;
 /* Game projection globals normally provided by the game code (used by the car model renderer) */
@@ -573,6 +573,7 @@ static void applySetting(const char *kv)
 	else if (!strcasecmp(key, "RainDrops")) gfx.rainDrops = v;
 	else if (!strcasecmp(key, "Haze")) gfx.haze = v;
 	else if (!strcasecmp(key, "TextureDump")) gfx.textureDump = v != 0;
+	else if (!strcasecmp(key, "Trees")) gfx.trees = v != 0;
 	else if (!strcasecmp(key, "Widescreen")) gfx.widescreen = v != 0;
 	else if (!strcasecmp(key, "HudCorners")) gfx.hudCorners = v != 0;
 	else if (!strcasecmp(key, "SettingsDir")) snprintf(g_settingsDir, sizeof g_settingsDir, "%s", eq + 1);

@@ -14,6 +14,7 @@
 #   TEXTURES=dir    HD textures to install (copied to <settings>/textures)
 #   SKIES=dir       skies to install (copied to <settings>/skies)
 #   TERRAIN=dir     distant terrain to install (copied to <settings>/terrain)
+#   TREES=dir       tree models and tables to install (copied to <settings>/trees)
 #   WAIT=ms         time from starting the race to the screenshot (default 20000)
 #   KEEP=1          leave the game running after the screenshot (drive it with tools/gfxtest/xkey)
 #   BIN=cmd         game command (default ./nfs2se; e.g. "gdb -batch -x cmds --args ./nfs2se")
@@ -57,6 +58,7 @@ for try in 1 2 3; do
 	[[ -n "${TEXTURES:-}" ]] && cp -r "$TEXTURES" "$TEST/home/.nfs2se/textures"
 	[[ -n "${SKIES:-}" ]] && cp -r "$SKIES" "$TEST/home/.nfs2se/skies"
 	[[ -n "${TERRAIN:-}" ]] && cp -r "$TERRAIN" "$TEST/home/.nfs2se/terrain"
+	[[ -n "${TREES:-}" ]] && cp -r "$TREES" "$TEST/home/.nfs2se/trees"
 
 	(cd "$GAME" && env -u WAYLAND_DISPLAY HOME="$TEST/home" SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy "$@" ${BIN:-./nfs2se} > "$OUT/game.log" 2>&1 &)
 	sleep 8

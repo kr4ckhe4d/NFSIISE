@@ -67,8 +67,10 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [ ] Owner check of the strength at 165 Hz; wheel motion blur; camera shake / FOV kick; subtle depth of field
 
 ## 6. Trees and landscape `[ ]`
-- [ ] Find how track objects are drawn; hook them like the cars
-- [ ] 3D trees (generated in Blender or sourced) replacing billboards, instanced with LODs
+- [x] Tree billboards found in the renderer (crossed cards, projected back into the world; no track format needed)
+- [x] 3D trees replacing them (jacaranda from Poly Haven reduced to ~45k, procedural conifer and palm), alpha-cutout
+      leaves with coverage-preserving mipmaps; tables for the start areas of all tracks
+- [ ] Trees on the rest of each lap (more textures), Outback's dead trees, LODs
 - [ ] Grass, plants and rocks scattered on ground with grass/dirt textures
 
 ## 7. Usability `[ ]`

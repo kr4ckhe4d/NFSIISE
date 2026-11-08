@@ -25,7 +25,7 @@
 
 #define CAR_MAX_GEOS   64
 #define CAR_MAX_MODELS 32
-#define CAR_MAX_DRAWS  32
+#define CAR_MAX_DRAWS  512 /* Cars, the terrain and trees (Trees.c) */
 
 typedef struct
 {
@@ -55,6 +55,7 @@ typedef struct
 	float shadow[5];        /* Contact shadow in car space: centre X, centre Z, half width, half length, ground Y */
 	BOOL fitted;
 	BOOL terrain;           /* Distant terrain (Terrain.c): world coordinates, no car marking, own fog */
+	BOOL scenery;           /* With terrain: scenery (trees, Trees.c) fogged like the game's geometry */
 	char name[32];
 } CarGeo;
 
@@ -128,6 +129,71 @@ static CarModel *carFindModel(const char *name)
 	memset(m, 0, sizeof *m);
 	snprintf(m->name, sizeof m->name, "%s", name);
 	return m;
+}
+
+/*
+ * Mipmaps of an alpha-cutout texture (tree leaves) that keep the alpha test coverage: averaged sparse alpha falls below
+ * the cutoff in small mips and distant leaves would vanish, so each level's alpha is scaled until the same share of
+ * texels passes 0.5 as in the full size texture.
+ */
+static float carAlphaCoverage(const uint8_t *p, int32_t n, float scale)
+{
+	int32_t i, pass = 0;
+	for (i = 0; i < n; ++i)
+		pass += p[i * 4 + 3] * scale > 127.5f;
+	return (float)pass / n;
+}
+static void carUploadCutoutMips(uint8_t *pixels, int32_t w, int32_t h)
+{
+	const float target = carAlphaCoverage(pixels, w * h, 1.0f);
+	uint8_t *level = pixels, *next;
+	int32_t lw = w, lh = h, lod = 0;
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+	while (lw > 1 || lh > 1)
+	{
+		const int32_t nw = SDL_max(lw / 2, 1), nh = SDL_max(lh / 2, 1);
+		int32_t x, y, c;
+		float lo = 0.5f, hi = 8.0f, scale = 1.0f;
+		next = (uint8_t *)malloc(nw * nh * 4);
+		if (!next)
+			break;
+		for (y = 0; y < nh; ++y)
+			for (x = 0; x < nw; ++x)
+				for (c = 0; c < 4; ++c)
+				{
+					const int32_t x0 = SDL_min(x * 2, lw - 1), x1 = SDL_min(x * 2 + 1, lw - 1), y0 = SDL_min(y * 2, lh - 1), y1 = SDL_min(y * 2 + 1, lh - 1);
+					next[(y * nw + x) * 4 + c] = (level[(y0 * lw + x0) * 4 + c] + level[(y0 * lw + x1) * 4 + c] + level[(y1 * lw + x0) * 4 + c] + level[(y1 * lw + x1) * 4 + c] + 2) / 4;
+				}
+		if (level != pixels)
+			free(level);
+		level = next;
+		lw = nw;
+		lh = nh;
+		/* Binary search for the alpha scale that restores the coverage */
+		for (c = 0; c < 12; ++c)
+		{
+			scale = (lo + hi) * 0.5f;
+			if (carAlphaCoverage(level, lw * lh, scale) < target)
+				lo = scale;
+			else
+				hi = scale;
+		}
+		{
+			uint8_t *up = (uint8_t *)malloc(lw * lh * 4);
+			if (up)
+			{
+				for (x = 0; x < lw * lh; ++x)
+				{
+					memcpy(up + x * 4, level + x * 4, 3);
+					up[x * 4 + 3] = (uint8_t)SDL_min(255.0f, level[x * 4 + 3] * scale);
+				}
+				glTexImage2D(GL_TEXTURE_2D, ++lod, GL_RGBA, lw, lh, 0, GL_RGBA, GL_UNSIGNED_BYTE, up);
+				free(up);
+			}
+		}
+	}
+	if (level != pixels)
+		free(level);
 }
 
 /* Reads the model file (GL resources are created on first use, from the rendering code) */
@@ -215,10 +281,17 @@ static BOOL carLoadModel(CarModel *m)
 			{
 				glGenTextures(1, &b->tex);
 				glBindTexture(GL_TEXTURE_2D, b->tex);
-				glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+				if (b->transmission < -0.5f)
+				{
+					carUploadCutoutMips(pixels, w, h);
+				}
+				else
+				{
+					glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
+					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+				}
 				stbi_image_free(pixels);
 				glBindTexture(GL_TEXTURE_2D, g_boundTexture);
 			}
@@ -416,6 +489,7 @@ static CarHeadlight g_hlCandidate, g_hlFrame;
 static void sprayCar(const uint8_t *object); /* Spray.c */
 static void sprayDraw();
 static void sprayCarShadows();
+static void treesQueue(); /* Trees.c */
 
 static void carHeadlightCandidate(const float rot[9], const float origin[3])
 {
@@ -655,6 +729,12 @@ static const char g_carFragmentSrc[] =
 	"	vec4 base = uColor;\n"
 	"	if (uHasTex > 0.5)\n"
 	"		base *= vec4(toLinear(texture2D(uTex, vUV).rgb), texture2D(uTex, vUV).a);\n"
+	/* Alpha-cutout batches (tree leaves, transmission -1) */
+	"	if (uPbr.z < -0.5)\n"
+	"	{\n"
+	"		if (base.a < 0.5) discard;\n"
+	"		base.a = 1.0;\n"
+	"	}\n"
 	/*
 	 * Lighting in the game's exposure: its scenery shows textures at about full brightness whatever the sky,
 	 * so the base illumination is fixed and only tinted by the sky's hue. A bright sky (e.g. a sunset) and a
@@ -952,6 +1032,10 @@ static void carModelsDraw(BOOL opaqueOnly)
 		mv[15] = 1.0f;
 		glUniformMatrix4fv(glGetUniformLocation(g_carProg, "uModelView"), 1, GL_FALSE, mv);
 		glUniform1f(glGetUniformLocation(g_carProg, "uTerrain"), g->terrain ? 1.0f : 0.0f);
+		if (g->scenery)
+			glUniform4f(glGetUniformLocation(g_carProg, "uTerrainFog"), 65535.0f, 1e9f, g_terrain.active ? SDL_max(g_terrain.fogScale, 0.05f) : 1.0f, g_sky.tex ? g_sky.gameFog : 1.0f);
+		else if (g->terrain)
+			glUniform4f(glGetUniformLocation(g_carProg, "uTerrainFog"), g_terrain.fogCap, g_terrain.visibility, g_terrain.fogMax, g_sky.tex ? g_sky.gameFog : 1.0f);
 		{
 			/*
 			 * Camera space (metres, X right, Y up, Z forward) -> clip space, matching the game: the screen
@@ -1006,6 +1090,7 @@ static void carModelsDraw(BOOL opaqueOnly)
 REALIGN STDCALL void carModelsFlush()
 {
 	sprayCarShadows();
+	treesQueue();
 	carModelsDraw(false);
 	sprayDraw();
 }
