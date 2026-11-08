@@ -7,6 +7,8 @@ everything.
 
 ## Documents
 
+Current state and next steps: [HANDOVER.md](HANDOVER.md).
+
 Progress is tracked in [ROADMAP.md](../../ROADMAP.md) at the repository root; update it with each milestone.
 
 | File | Contents |
