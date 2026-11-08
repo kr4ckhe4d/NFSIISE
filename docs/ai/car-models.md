@@ -77,8 +77,10 @@ Coordinates are glTF-like (right handed, Y up, +Z front). The loader negates X o
   - `origin` = camera-space translation minus `pos_part * M` (so the car origin, not the part origin),
   - the projection constants at that moment, and the wheel state from `carUpdateMotion(object)`.
   Duplicate queueing of the same car (body high+low LOD) is filtered by origin distance.
+- **Opaque parts** are drawn at the first 3D triangle of the view (`worldMask()`, right after the sky panorama), so
+  every later polygon of the game - also translucent rain, spray and smoke - is depth tested against the car.
 - **carModelsFlush()** – called at the end of `sub_42A3C0` (the game finished drawing its sorted polygon list for the
-  view). Draws all queued models. Drawing earlier is wrong: e.g. on Proving Grounds the game sets the clip window and
+  view). Draws the transparent parts (glass) over the scene behind them, and opaque parts not drawn yet. Drawing earlier is wrong: e.g. on Proving Grounds the game sets the clip window and
   then draws the sky backdrop without depth test, which overwrote models drawn at the clip window change.
 
 ### Fitting (`carFitModel`)
@@ -112,8 +114,6 @@ compression, written to both MRT targets (mask = 1, world) so all post effects a
 
 ## Known limitations / next steps
 - Rear-view mirror untested (the hook is called with the mirror's clip window active? verify; projection supports it).
-- Drawn after all scene polygons: translucent rain streaks and smoke in front of the car are hidden by it. Fix idea:
-  flush before the game's translucent polygons (needs finding where the render list switches to translucent).
 - No reflections of the scene on the car (only a procedural sky/ground environment). SSR is ground-only.
 - Normal/roughness/metallic textures are ignored; only base color textures are exported.
 - `CarModels=0` disables everything (parts are then never skipped).

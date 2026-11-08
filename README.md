@@ -213,7 +213,7 @@ For a quick test, `tools/car-models/install-carconcept.sh` downloads the Khronos
 
 Wheels spin with the distance the car travels and the front wheels steer by how fast the car turns (estimated from its motion, so slides and collisions are limited to a realistic steering angle). The converter recognizes wheels by object names starting with `WheelFrontL`, `WheelFrontR`, `WheelRearL`, `WheelRearR` (brake pads and calipers steer but don't spin).
 
-Current limitations: the rear-view mirror is untested, and the model is drawn after the scene's polygons, so rain streaks and smoke in front of it are hidden behind it.
+Current limitations: the rear-view mirror is untested.
 
 ### Hotkeys
 

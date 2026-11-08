@@ -29,7 +29,7 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 
 ## 2. Car polish `[ ]`
 - [ ] Reflections of the scene in car paint and glass
-- [ ] Draw cars before translucent effects (rain streaks and smoke in front of the car are hidden now)
+- [x] Draw cars before translucent effects (opaque parts right after the sky, glass at the end)
 - [ ] Verify cars in the rear-view mirror
 - [ ] Normal, roughness and metallic textures from glTF
 - [ ] Models for the other cars (needs sourcing; only the McLaren F1 has one)

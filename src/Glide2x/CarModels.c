@@ -61,6 +61,7 @@ typedef struct
 	const CarGeo *geo;
 	float rot[9], origin[3]; /* Car space -> camera space (metres) */
 	float spin, steer;       /* Wheels (radians) */
+	BOOL opaqueDrawn;        /* Opaque parts were drawn early (before the scene's polygons) */
 	float proj[4];           /* Game projection: scale X, scale Y, center X, center Y */
 } CarDraw;
 
@@ -420,6 +421,7 @@ REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const in
 				return; /* High and low detail body of the same car */
 		}
 		d->geo = &g_carGeos[gi];
+		d->opaqueDrawn = false;
 		d->spin = d->steer = 0.0f;
 		if (object && g_carGeos[gi].model->loaded && g_carGeos[gi].fitted)
 		{
@@ -676,7 +678,12 @@ static void carDrawBatches(const CarModel *m, const CarDraw *d, BOOL transparent
 }
 
 /* Draws the queued car models into the current (main) view */
-static void carModelsDraw()
+/*
+ * Draws the queued car models. Opaque parts are drawn early, right after the sky (before the scene's polygons), so
+ * everything the game draws later - including translucent rain, smoke and lights - is depth tested against them.
+ * Transparent parts (glass) are drawn at the end, over the scene behind them.
+ */
+static void carModelsDraw(BOOL opaqueOnly)
 {
 	int32_t i;
 	if (!g_carDrawCount)
@@ -776,16 +783,26 @@ static void carModelsDraw()
 		/* Up and sun: car space up, sun high and slightly behind the camera */
 		glUniform3f(glGetUniformLocation(g_carProg, "uUp"), d->rot[1], d->rot[4], d->rot[7]);
 		glUniform3f(glGetUniformLocation(g_carProg, "uSun"), 0.3f + d->rot[1], 0.9f * d->rot[4] + 0.3f, -0.4f + d->rot[7]);
-		glDisable(GL_BLEND);
-		carDrawBatches(g->model, d, false);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glDepthMask(GL_FALSE);
-		carDrawBatches(g->model, d, true);
-		glDepthMask(GL_TRUE);
+		if (!d->opaqueDrawn)
+		{
+			glDisable(GL_BLEND);
+			carDrawBatches(g->model, d, false);
+			((CarDraw *)d)->opaqueDrawn = true;
+		}
+		if (!opaqueOnly)
+		{
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glDepthMask(GL_FALSE);
+			carDrawBatches(g->model, d, true);
+			glDepthMask(GL_TRUE);
+		}
 	}
-	g_carDrawCount = 0;
-	++g_carFrame;
+	if (!opaqueOnly)
+	{
+		g_carDrawCount = 0;
+		++g_carFrame;
+	}
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glDisableVertexAttribArray(1);
@@ -798,5 +815,5 @@ static void carModelsDraw()
 /* Game hook: the scene's polygons were drawn */
 REALIGN STDCALL void carModelsFlush()
 {
-	carModelsDraw();
+	carModelsDraw(false);
 }

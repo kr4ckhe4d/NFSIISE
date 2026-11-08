@@ -1159,7 +1159,7 @@ REALIGN STDCALL void grChromakeyValue(GrColor_t value)
 }
 REALIGN STDCALL void grBufferSwap(int swap_interval)
 {
-	carModelsDraw();
+	carModelsDraw(false);
 // 	fprintf(stderr, "grBufferSwap: [%d]\n", g_trianglesCount);
 
 	drawTriangles();
@@ -1303,7 +1303,11 @@ static inline uint8_t worldMask(const GrVertex *a, const GrVertex *b, const GrVe
 	}
 #ifdef GL2_ENHANCED
 	if (!g_seen3D)
-		skyDrawPending(); /* After the sky backdrop, before the first 3D triangle of the view */
+	{
+		/* After the sky backdrop, before the first 3D triangle of the view: the sky, then opaque car models */
+		skyDrawPending();
+		carModelsDraw(true);
+	}
 #endif
 	g_seen3D = g_frameHas3D = true;
 	*mapping = g_fullWidthView ? MapWorld : MapOverlay;
