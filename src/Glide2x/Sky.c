@@ -56,7 +56,8 @@ static void skySetFog(BOOL on);
 static struct
 {
 	BOOL valid;
-	float camToWorld[16];
+	uint32_t frame; /* Incremented when the main view's camera is captured */
+	float camToWorld[16], camPos[3];
 } g_skyMain;
 static GLuint g_skyProg;
 static BOOL g_skyProgFailed;
@@ -314,7 +315,7 @@ static float skySunCamera(float dir[3])
 {
 	float az, el, w[3];
 	int32_t c;
-	if (!gfx.skies || !g_sky.ibl[0] || g_sky.track != gfxCurrentTrack || !g_sky.autoYaw || g_sky.sunElevation <= 0.5f)
+	if (!gfx.skies || !g_sky.ibl[0] || g_sky.track != gfxCurrentTrack || !g_sky.autoYaw || g_sky.sunElevation <= 0.5f || !g_skyMain.valid)
 		return 0.0f;
 	az = (g_sky.sunAzimuth - g_sky.yaw) * (float)M_PI / 180.0f;
 	el = g_sky.sunElevation * (float)M_PI / 180.0f;
@@ -322,8 +323,59 @@ static float skySunCamera(float dir[3])
 	w[1] = SDL_sinf(el);
 	w[2] = SDL_cosf(az) * SDL_cosf(el);
 	for (c = 0; c < 3; ++c)
-		dir[c] = g_skyView.camToWorld[c * 4 + 0] * w[0] + g_skyView.camToWorld[c * 4 + 1] * w[1] + g_skyView.camToWorld[c * 4 + 2] * w[2];
+		dir[c] = g_skyMain.camToWorld[c * 4 + 0] * w[0] + g_skyMain.camToWorld[c * 4 + 1] * w[1] + g_skyMain.camToWorld[c * 4 + 2] * w[2];
 	return 1.0f;
+}
+
+/*
+ * Camera motion of the main view since the previous frame, for motion blur: previous camera space = m * current
+ * camera space + t (m column-major for GLSL). Call once per frame. False without a new camera in both frames, or
+ * after a jump (camera switch, reset).
+ */
+static BOOL skyCameraMotion(float m[9], float t[3], float *dtSeconds)
+{
+	static uint32_t lastFrame;
+	static float prevRot[16], prevPos[3];
+	static uint32_t prevTicks;
+	static BOOL prevValid;
+	const uint32_t ticks = SDL_GetTicks();
+	BOOL ok = false;
+	if (!g_skyMain.valid || g_skyMain.frame == lastFrame)
+	{
+		prevValid = false;
+		return false;
+	}
+	lastFrame = g_skyMain.frame;
+	if (prevValid)
+	{
+		const float *R = g_skyMain.camToWorld, *Rp = prevRot;
+		const float *p = g_skyMain.camPos, *pp = prevPos;
+		const float jump = SDL_fabsf(p[0] - pp[0]) + SDL_fabsf(p[1] - pp[1]) + SDL_fabsf(p[2] - pp[2]);
+		int32_t k, r, j;
+		if (jump < 20.0f)
+		{
+			for (k = 0; k < 3; ++k)
+			{
+				for (r = 0; r < 3; ++r)
+				{
+					float v = 0.0f;
+					for (j = 0; j < 3; ++j)
+						v += Rp[k * 4 + j] * R[r * 4 + j];
+					m[r * 3 + k] = v;
+				}
+				t[k] = 0.0f;
+				for (j = 0; j < 3; ++j)
+					t[k] += Rp[k * 4 + j] * (p[j] - pp[j]);
+			}
+			*dtSeconds = (ticks - prevTicks) / 1000.0f;
+			ok = *dtSeconds > 0.0f && *dtSeconds < 0.2f;
+		}
+	}
+	memcpy(prevRot, g_skyMain.camToWorld, sizeof prevRot);
+	memcpy(prevPos, g_skyMain.camPos, sizeof prevPos);
+	prevTicks = ticks;
+	prevValid = true;
+	return ok;
 }
 
 /* Loads "<settings>/skies/trNN.txt" and its image for the track */
@@ -563,7 +615,9 @@ static void skyDrawPending()
 		if (g_fullWidthView)
 		{
 			memcpy(g_skyMain.camToWorld, g_skyView.camToWorld, sizeof g_skyMain.camToWorld);
+			memcpy(g_skyMain.camPos, g_skyView.camPos, sizeof g_skyMain.camPos);
 			g_skyMain.valid = true;
+			++g_skyMain.frame;
 		}
 	}
 	if (!g_skyView.pending)

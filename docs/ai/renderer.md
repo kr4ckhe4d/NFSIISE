@@ -41,6 +41,11 @@ expansion, white = 4) and compress back. Debug views: `Alt+M` cycles 0 off, 1 wo
 (`captureTriangle` in OpenGL2.c): one line per game triangle (outcome: world / overlay / backdrop / terrain-hidden /
 backdrop-replaced, texture hash, alpha mode, blend, depth mask, clip window, vertices x y oow alpha) plus the textures
 used, as uploaded (HD if replaced). Debug view 7 shows the headlight light alone, 8 the sun shadows.
+Motion blur (`MotionBlur`, start of the composite shader): each world pixel is reprojected with the previous frame's
+main camera (`skyCameraMotion()` in Sky.c from `g_skyMain`, latched in `skyDrawPending` for full-width views; the
+world is assumed static) and the colour is averaged over 8 samples along the motion, scaled to an exposure of
+`MotionBlur / 60` s (so the look does not depend on the frame rate), at most 3% of the screen. Car pixels (mask
+green), HUD and mirror are neither blurred nor sampled. Camera jumps (> 20 m) and missing frames disable it.
 Sun shadows (`Shadows`, composite shader): 24 jittered steps from the pixel towards the sun (`skySunCamera()` in
 Sky.c: the sky file's sun, only for skies with `auto_yaw=1`) through the depth buffer, up to 8 m; an occluder is a
 world pixel (mask) between 0.12 m + ... and 1.5 m + 3% behind the ray, at least 1.5 m from the camera, outside the

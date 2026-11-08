@@ -645,6 +645,9 @@ static const char g_postCompositeSrc[] =
 	"uniform float uReflections;\n"
 	"uniform float uShaftStrength;\n"
 	"uniform float uHaze;\n"
+	"uniform float uMotion;\n" /* Motion blur: exposure / frame time, camera motion (previous = M * current + T) */
+	"uniform mat3 uMotionM;\n"
+	"uniform vec3 uMotionT;\n"
 	"uniform float uShadow;\n" /* Screen-space sun shadows: strength, direction towards the sun (camera space) */
 	"uniform vec3 uSunCam;\n"
 	"uniform float uNightAmbient;\n" /* Night: scenery darkened to this, bright lights stay */
@@ -686,8 +689,34 @@ static const char g_postCompositeSrc[] =
 	"void main()\n"
 	"{\n"
 	"	vec3 src = texture2D(uColor, vUV).rgb;\n"
-	"	float mask = texture2D(uMask, vUV).r;\n"
+	"	vec4 maskAll = texture2D(uMask, vUV);\n"
+	"	float mask = maskAll.r;\n"
 	"	float depth = texture2D(uDepth, vUV).r;\n"
+	/* Camera motion blur of the scenery (static world assumed; the cars, HUD and mirror stay sharp) */
+	"	setView(vUV);\n"
+	"	if (uMotion > 0.0 && mask > 0.5 && maskAll.g < 0.5 && !gSub)\n"
+	"	{\n"
+	"		vec3 P = viewPos(vUV, depth >= 0.999999 ? 1e5 : linearDepth(depth));\n"
+	"		vec3 Pp = uMotionM * P + uMotionT;\n"
+	"		if (Pp.z > 0.1)\n"
+	"		{\n"
+	"			vec2 v = (vUV - project(Pp)) * uMotion;\n"
+	"			float l = length(v);\n"
+	"			if (l > 0.03) v *= 0.03 / l;\n"
+	"			if (l > 0.0005)\n"
+	"			{\n"
+	"				vec3 sum = src;\n"
+	"				float n = 1.0;\n"
+	"				for (int i = 0; i < 8; ++i)\n"
+	"				{\n"
+	"					vec2 uv = vUV + v * (float(i) / 7.0 - 0.5);\n"
+	"					vec4 m = texture2D(uMask, uv);\n"
+	"					if (m.r > 0.5 && m.g < 0.5 && !inSub(uv)) { sum += texture2D(uColor, uv).rgb; n += 1.0; }\n"
+	"				}\n"
+	"				src = sum / n;\n"
+	"			}\n"
+	"		}\n"
+	"	}\n"
 	"	float ao = 1.0;\n"
 	"	if (uAOStrength > 0.0 && depth < 0.999999)\n"
 	"		ao = sampleAO(linearDepth(depth));\n"
@@ -1364,6 +1393,8 @@ static BOOL skyMainCamera(float camToWorld[16]);
 static float carHeadlights(float pos[6], float basis[9], float *nightAmbient);
 /* Sky.c: direction towards the sun in camera space; returns the strength, 0 - no sun */
 static float skySunCamera(float dir[3]);
+/* Sky.c: camera motion since the previous frame (previous camera space = m * current + t) */
+static BOOL skyCameraMotion(float m[9], float t[3], float *dtSeconds);
 
 static void postViewUniforms(GLuint prog, float projX, float projY)
 {
@@ -1616,6 +1647,16 @@ static void postEffects()
 		{
 			glUniform3fv(glGetUniformLocation(g_post.compositeProg, "uHlPos"), 2, hlPos);
 			glUniformMatrix3fv(glGetUniformLocation(g_post.compositeProg, "uHlBasis"), 1, GL_FALSE, hlBasis);
+		}
+	}
+	{
+		float m[9], t[3], dt = 0.0f;
+		const BOOL motion = gfx.motionBlur > 0.0f && skyCameraMotion(m, t, &dt);
+		postUniform1f(g_post.compositeProg, "uMotion", motion ? SDL_min(gfx.motionBlur * (1.0f / 60.0f) / dt, 3.0f) : 0.0f);
+		if (motion)
+		{
+			glUniformMatrix3fv(glGetUniformLocation(g_post.compositeProg, "uMotionM"), 1, GL_FALSE, m);
+			glUniform3f(glGetUniformLocation(g_post.compositeProg, "uMotionT"), t[0], t[1], t[2]);
 		}
 	}
 	{

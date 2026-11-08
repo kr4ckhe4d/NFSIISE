@@ -72,6 +72,7 @@ GfxSettings gfx = {
 	0.6f,  /* sunShafts */
 	0.25f, /* haze */
 	0.5f,  /* shadows */
+	0.5f,  /* motionBlur */
 	320.0f, /* focalLength */
 	true,  /* widescreen */
 	true,  /* carModels */
@@ -425,6 +426,7 @@ static BOOL parseGfxSetting(const char *line)
 		parseGfxFloat(line, "SunShafts", &gfx.sunShafts, 0.0f, 2.0f) ||
 		parseGfxFloat(line, "Haze", &gfx.haze, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "Shadows", &gfx.shadows, 0.0f, 1.0f) ||
+		parseGfxFloat(line, "MotionBlur", &gfx.motionBlur, 0.0f, 2.0f) ||
 		parseGfxFloat(line, "FocalLength", &gfx.focalLength, 50.0f, 2000.0f) ||
 		parseGfxBool(line, "Widescreen", &gfx.widescreen) ||
 		parseGfxBool(line, "CarModels", &gfx.carModels) ||
