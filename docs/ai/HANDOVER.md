@@ -32,6 +32,13 @@ State at the end of the first long session. Read `CLAUDE.md`, then `ROADMAP.md`,
   `Alt+D` frame capture from the owner (`~/.nfs2se/screenshots/capture-*`) to see the hashes and how they're drawn.
   The brown ceiling seen in the same screenshots was the terrain (fixed in 3873378).
 
+- **Second batch (2026-11-08), all headless-tested only, waiting for the owner's look on the real GPU:**
+  terrain on all seven tracks (cfb6a3b), night headlights + darkening on Proving Grounds (222651c), screen-space
+  sun shadows (bdb4edc), camera motion blur (10884c5), hidden game cloud layers under the panoramas (32aadb8; the
+  city sky was white). Settings: `Shadows=0.5`, `MotionBlur=0.5` (defaults); sky file keys `headlights`,
+  `night_ambient`, `hide`, `exposure`. The owner's installed skies were patched by hand (appended keys); rerunning
+  `tools/skies/install-skies.sh` produces the same.
+
 ## Suggested next steps (see ROADMAP.md)
 1. Act on the owner's Outback feedback.
 2. Terrain for the other tracks: pick real places, find each track's stand-ins (method in `terrain.md`).
