@@ -492,6 +492,12 @@ static const char g_carFragmentSrc[] =
 	"uniform vec2 uIblParams;\n" /* yaw (radians), elevation of the bottom row (degrees) */
 	"uniform vec4 uSunIbl;\n"    /* Direction towards the sun (camera space), strength (0 - overcast) */
 	"uniform vec3 uSunWorld;\n"
+	/* Dynamic environment (PostFX.c): the scenery seen around the camera, alpha = seen */
+	"uniform sampler2D uEnv0;\n"
+	"uniform sampler2D uEnv1;\n"
+	"uniform sampler2D uEnv2;\n"
+	"uniform float uHasEnv;\n"
+	"vec2 envUV(vec3 w) { return vec2(atan(w.x, w.z) / 6.2831853 + 0.5, asin(clamp(w.y, -1.0, 1.0)) / 3.14159265 + 0.5); }\n"
 	"vec3 toLinear(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }\n"
 	"vec3 iblDecode(vec3 c) { vec3 l = toLinear(c); return l / max(vec3(1.0) - 0.75 * l, vec3(1.0 / 64.0)); }\n"
 	"vec2 iblUV(vec3 w, out float el)\n"
@@ -556,6 +562,7 @@ static const char g_carFragmentSrc[] =
 	"	vec3 spec = D * G * F / max(4.0 * NoL * NoV, 0.001);\n"
 	"	float hemi = 0.5 + 0.5 * dot(N, uUp);\n"
 	"	vec3 envSharpIbl = vec3(-1.0);\n"
+	"	vec4 envDyn = vec4(0.0);\n"
 	"	vec3 ambient = hue * mix(0.2, 0.55, hemi) + skyRaw * 0.12 * hemi;\n"
 	/*
 	 * Image based lighting: reflections and diffuse light from the sky panorama, the sun where the panorama has it.
@@ -591,6 +598,19 @@ static const char g_carFragmentSrc[] =
 	"			sunColor = vec3(0.0);\n"
 	"		}\n"
 	"	}\n"
+	/* The scenery around the car (road, walls, terrain, other cars) where it has been seen */
+	"	if (uHasEnv > 0.5)\n"
+	"	{\n"
+	"		vec3 Nw = normalize((uCamToWorld * vec4(N, 0.0)).xyz);\n"
+	"		vec3 Rw = normalize((uCamToWorld * vec4(R, 0.0)).xyz);\n"
+	"		vec2 ruv = envUV(Rw);\n"
+	"		vec4 d0 = texture2D(uEnv0, ruv), d1 = texture2D(uEnv1, ruv), d2 = texture2D(uEnv2, ruv);\n"
+	"		vec4 dyn = rough < 0.3 ? mix(d0, d1, smoothstep(0.05, 0.3, rough)) : mix(d1, d2, smoothstep(0.3, 0.7, rough));\n"
+	"		env = mix(env, dyn.rgb / max(dyn.a, 1e-3), clamp(dyn.a, 0.0, 1.0) * 0.9);\n"
+	"		envDyn = vec4(d0.rgb / max(d0.a, 1e-3), clamp(d0.a, 0.0, 1.0) * 0.9);\n"
+	"		vec4 a2 = texture2D(uEnv2, envUV(Nw));\n"
+	"		ambient = mix(ambient, a2.rgb / max(a2.a, 1e-3), clamp(a2.a, 0.0, 1.0) * 0.5);\n"
+	"	}\n"
 	"	vec3 diffuse = base.rgb * (1.0 - metal);\n"
 	"	vec3 color = diffuse * (ambient + sunColor * NoL * 0.9) + spec * sunColor * NoL + env * F;\n"
 	/* Clear coat: an extra sharp reflection layer on car paint */
@@ -598,6 +618,7 @@ static const char g_carFragmentSrc[] =
 	"	vec3 envSharp = ry < 0.0 ? mix(horizon, ground, smoothstep(0.0, 0.08, -ry)) : mix(horizon, sky, smoothstep(0.05, 0.25, ry));\n"
 	"	if (envSharpIbl.x >= 0.0)\n"
 	"		envSharp = envSharpIbl;\n"
+	"	envSharp = mix(envSharp, envDyn.rgb, envDyn.a);\n"
 	"	color = mix(color, envSharp, uPbr.w * Fc);\n"
 	"	color += uEmission;\n"
 	"	float alpha = base.a;\n"
@@ -611,7 +632,7 @@ static const char g_carFragmentSrc[] =
 	/* The scene is stored in the game's gamma space, highlights are compressed like the post-processing expects */
 	"	color = color / (1.0 + color * 0.75);\n"
 	"	gl_FragData[0] = vec4(pow(color, vec3(1.0 / 2.2)), alpha);\n"
-	"	gl_FragData[1] = vec4(1.0, 0.0, 0.0, alpha);\n"
+	"	gl_FragData[1] = vec4(1.0, 1.0, 0.0, alpha);\n"
 	"}\n"
 ;
 
@@ -714,6 +735,20 @@ static void carModelsDraw(BOOL opaqueOnly)
 		float camToWorld[16], yaw = 0.0f, elevationMin = 0.0f, sunWorld[3] = {0.0f, 1.0f, 0.0f}, sunStrength = 0.0f;
 		const BOOL ibl = skyIblBind(2, camToWorld, &yaw, &elevationMin, sunWorld, &sunStrength);
 		glUniform1f(glGetUniformLocation(g_carProg, "uHasIbl"), ibl ? 1.0f : 0.0f);
+		{
+			/* Dynamic environment of the scenery (units 5-7) */
+			float cam[16];
+			const BOOL env = skyEnvBind(5) && skyMainCamera(cam);
+			glUniform1f(glGetUniformLocation(g_carProg, "uHasEnv"), env ? 1.0f : 0.0f);
+			if (env)
+			{
+				glUniform1i(glGetUniformLocation(g_carProg, "uEnv0"), 5);
+				glUniform1i(glGetUniformLocation(g_carProg, "uEnv1"), 6);
+				glUniform1i(glGetUniformLocation(g_carProg, "uEnv2"), 7);
+				if (!ibl)
+					glUniformMatrix4fv(glGetUniformLocation(g_carProg, "uCamToWorld"), 1, GL_FALSE, cam);
+			}
+		}
 		if (ibl)
 		{
 			/* Sun in camera space: camera = transpose(camToWorld) * world */

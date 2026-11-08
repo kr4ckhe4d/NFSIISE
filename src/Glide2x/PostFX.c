@@ -62,7 +62,7 @@ static struct
 
 	/* Programs */
 	GLuint aoPrepProg, aoProg, blurProg, prefilterProg, downProg, upProg, compositeProg, fxaaProg, finalProg;
-	GLuint skyProg, ssrProg, reflBlurProg, shaftsProg;
+	GLuint skyProg, ssrProg, reflBlurProg, shaftsProg, envUpdateProg, envDownProg;
 
 	/* Scene */
 	int32_t w, h, samples;
@@ -72,6 +72,8 @@ static struct
 	/* Effects */
 	PostTarget aoLin, aoA, aoB;
 	PostTarget sky, reflA, reflB, shafts;
+	PostTarget env[2], env1, env2; /* Dynamic environment of the camera (equirect, world directions), blurred levels */
+	int32_t envCur, envTrack;
 	PostTarget bloom[BloomLevels];
 	int32_t bloomLevels;
 	PostTarget postA, postB;
@@ -286,6 +288,55 @@ static const char g_postSkySrc[] =
 	"	{\n"
 	"		gl_FragColor = vec4(worldSum / max(allN - skyN, 1.0), 1.0);\n"
 	"	}\n"
+	"}\n"
+;
+
+/*
+ * Dynamic environment (for car model reflections): an equirectangular map of world directions around the camera.
+ * Directions visible on screen are updated with the scene (excluding overlays, the mirror and car models), others
+ * keep what was seen before - so the scenery passed by stays in the reflections. Alpha = how much was seen.
+ */
+static const char g_postEnvUpdateSrc[] =
+	POST_COMMON
+	POST_VIEW
+	"uniform sampler2D uPrev;\n"
+	"uniform sampler2D uColor;\n"
+	"uniform sampler2D uLin;\n"
+	"uniform sampler2D uMask;\n"
+	"uniform mat4 uCam;\n"       /* Camera -> world */
+	"uniform float uWhite;\n"
+	"uniform float uRate;\n"
+	"void main()\n"
+	"{\n"
+	"	vec4 prev = texture2D(uPrev, vUV);\n"
+	"	float az = (vUV.x - 0.5) * 6.2831853, el = (vUV.y - 0.5) * 3.14159265;\n"
+	"	vec3 w = vec3(sin(az) * cos(el), sin(el), cos(az) * cos(el));\n"
+	"	vec3 c = (vec4(w, 0.0) * uCam).xyz;\n"   /* World -> camera (orthonormal: transpose) */
+	"	gl_FragColor = prev;\n"
+	"	if (c.z < 0.05)\n"
+	"		return;\n"
+	"	setView(vec2(0.5));\n"
+	"	vec2 suv = project(c);\n"
+	"	if (any(lessThan(suv, vec2(0.002))) || any(greaterThan(suv, vec2(0.998))) || inSub(suv))\n"
+	"		return;\n"
+	"	if (texture2D(uLin, suv).r <= 0.0 || texture2D(uMask, suv).g > 0.5)\n"
+	"		return;\n"
+	"	vec3 scene = expandHDR(toLinear(texture2D(uColor, suv).rgb), uWhite);\n"
+	"	gl_FragColor = mix(prev, vec4(scene, 1.0), uRate);\n"
+	"}\n"
+;
+
+/* Downsampling blur of the environment (4 bilinear taps, wraps horizontally) */
+static const char g_postEnvDownSrc[] =
+	POST_COMMON
+	"uniform sampler2D uTex;\n"
+	"uniform vec2 uTexel;\n"      /* Source texel size */
+	"void main()\n"
+	"{\n"
+	"	vec2 o = uTexel * 1.5;\n"
+	"	vec4 s = texture2D(uTex, vUV + vec2(-o.x, -o.y)) + texture2D(uTex, vUV + vec2(o.x, -o.y)) +\n"
+	"	         texture2D(uTex, vUV + vec2(-o.x, o.y)) + texture2D(uTex, vUV + vec2(o.x, o.y)) + texture2D(uTex, vUV) * 2.0;\n"
+	"	gl_FragColor = s / 6.0;\n"
 	"}\n"
 ;
 
@@ -948,6 +999,10 @@ static void postDestroyTargets()
 	postDestroyTarget(&g_post.aoA);
 	postDestroyTarget(&g_post.aoB);
 	postDestroyTarget(&g_post.sky);
+	postDestroyTarget(&g_post.env[0]);
+	postDestroyTarget(&g_post.env[1]);
+	postDestroyTarget(&g_post.env1);
+	postDestroyTarget(&g_post.env2);
 	postDestroyTarget(&g_post.reflA);
 	postDestroyTarget(&g_post.reflB);
 	postDestroyTarget(&g_post.shafts);
@@ -1009,6 +1064,8 @@ static BOOL postInit()
 	g_post.ssrProg = postCompile("reflections", g_postSSRSrc);
 	g_post.reflBlurProg = postCompile("reflection blur", g_postReflBlurSrc);
 	g_post.shaftsProg = postCompile("sun shafts", g_postShaftsSrc);
+	g_post.envUpdateProg = postCompile("environment update", g_postEnvUpdateSrc);
+	g_post.envDownProg = postCompile("environment blur", g_postEnvDownSrc);
 
 	g_post.ok = g_post.aoPrepProg && g_post.aoProg && g_post.blurProg && g_post.prefilterProg && g_post.downProg &&
 	            g_post.upProg && g_post.compositeProg && g_post.fxaaProg && glDrawBuffers;
@@ -1131,6 +1188,36 @@ static GLuint postCreateTargets(int32_t w, int32_t h)
 				}
 				if (!postCreateTarget(&g_post.shafts, (w + 1) / 2, (h + 1) / 2, true))
 					postDestroyTarget(&g_post.shafts);
+				if (g_post.envUpdateProg && g_post.envDownProg)
+				{
+					int32_t e;
+					BOOL envOk = postCreateTarget(&g_post.env[0], 256, 128, true) && postCreateTarget(&g_post.env[1], 256, 128, true) &&
+					             postCreateTarget(&g_post.env1, 64, 32, true) && postCreateTarget(&g_post.env2, 16, 8, true);
+					for (e = 0; envOk && e < 2; ++e)
+					{
+						/* Nothing seen yet: alpha 0 */
+						glBindFramebuffer(GL_FRAMEBUFFER, g_post.env[e].fbo);
+						glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+						glClear(GL_COLOR_BUFFER_BIT);
+						glBindTexture(GL_TEXTURE_2D, g_post.env[e].tex);
+						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+					}
+					if (envOk)
+					{
+						glBindTexture(GL_TEXTURE_2D, g_post.env1.tex);
+						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+						glBindTexture(GL_TEXTURE_2D, g_post.env2.tex);
+						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+					}
+					else
+					{
+						postDestroyTarget(&g_post.env[0]);
+						postDestroyTarget(&g_post.env[1]);
+						postDestroyTarget(&g_post.env1);
+						postDestroyTarget(&g_post.env2);
+					}
+					g_post.envTrack = -2;
+				}
 			}
 			else
 			{
@@ -1185,6 +1272,8 @@ static void postResolve()
 /* Main view projection, and the sub-view (rear-view mirror) drawn in this frame */
 /* Sky.c: binds the track's sky panorama (sharp, blurred) for the main view; false without one */
 static BOOL skyMainPanorama(int32_t unit, float camToWorld[16], float *yawRadians, float *elevationMin);
+/* Sky.c: camera -> world matrix of the main view of this frame; false if unknown */
+static BOOL skyMainCamera(float camToWorld[16]);
 
 static void postViewUniforms(GLuint prog, float projX, float projY)
 {
@@ -1231,6 +1320,52 @@ static void postEffects()
 		postBindTexture(1, g_post.sceneDepth);
 		postBindTexture(2, g_post.sceneMask);
 		postDrawQuad(&g_post.sky);
+	}
+
+	/* Dynamic environment for car model reflections */
+	if (g_post.env2.tex && g_post.aoLin.tex && (ao || refl))
+	{
+		float cam[16];
+		if (skyMainCamera(cam))
+		{
+			const int32_t next = g_post.envCur ^ 1;
+			if (g_post.envTrack != gfxCurrentTrack)
+			{
+				/* Another track: forget what was seen */
+				int32_t e;
+				for (e = 0; e < 2; ++e)
+				{
+					glBindFramebuffer(GL_FRAMEBUFFER, g_post.env[e].fbo);
+					glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+					glClear(GL_COLOR_BUFFER_BIT);
+				}
+				g_post.envTrack = gfxCurrentTrack;
+			}
+			glUseProgram(g_post.envUpdateProg);
+			postUniform1i(g_post.envUpdateProg, "uPrev", 0);
+			postUniform1i(g_post.envUpdateProg, "uColor", 1);
+			postUniform1i(g_post.envUpdateProg, "uLin", 2);
+			postUniform1i(g_post.envUpdateProg, "uMask", 3);
+			postViewUniforms(g_post.envUpdateProg, projX, projY);
+			glUniformMatrix4fv(glGetUniformLocation(g_post.envUpdateProg, "uCam"), 1, GL_FALSE, cam);
+			postUniform1f(g_post.envUpdateProg, "uWhite", whiteS);
+			postUniform1f(g_post.envUpdateProg, "uRate", 0.25f);
+			postBindTexture(0, g_post.env[g_post.envCur].tex);
+			postBindTexture(1, g_post.sceneColor);
+			postBindTexture(2, g_post.aoLin.tex);
+			postBindTexture(3, g_post.sceneMask);
+			postDrawQuad(&g_post.env[next]);
+			g_post.envCur = next;
+
+			glUseProgram(g_post.envDownProg);
+			postUniform1i(g_post.envDownProg, "uTex", 0);
+			postBindTexture(0, g_post.env[next].tex);
+			postUniform2f(g_post.envDownProg, "uTexel", 1.0f / g_post.env[next].w, 1.0f / g_post.env[next].h);
+			postDrawQuad(&g_post.env1);
+			postBindTexture(0, g_post.env1.tex);
+			postUniform2f(g_post.envDownProg, "uTexel", 1.0f / g_post.env1.w, 1.0f / g_post.env1.h);
+			postDrawQuad(&g_post.env2);
+		}
 	}
 
 	/* Screen-space reflections, then glossy blur (sharper and more streaky when wet) */

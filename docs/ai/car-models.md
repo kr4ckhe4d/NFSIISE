@@ -102,6 +102,17 @@ game object (`esi` at the hook, `+0x74` position 16.16, `+0x50` matrix 16.16) is
   over 0.15 s, so collisions and slides don't flick the wheels. Left turn = negative angle (verified numerically).
 The vertex shader rotates wheel vertices: spin around X, then steer around Y, about the batch pivot.
 
+### Scene reflections (dynamic environment)
+`PostFX.c` keeps an equirectangular map of world directions around the camera (256x128 RGBA16F ping-pong, plus
+64x32 and 16x8 blurred copies). Each frame (`postEffects`, after the linear depth) every direction that is visible
+on screen is blended towards the scene colour there (rate 0.25), skipping overlays, the mirror and car-model pixels
+(car models write green = 1 into the mask attachment; the mask is cleared to (1,0,0,1)). Directions behind the
+camera keep what was seen when they were in front, so the scenery that was passed shows in the paint. Alpha is how
+much was seen (colour is premultiplied by it). The map is cleared when the track changes. The camera of the main
+view comes from the horizon hook for every frame (`skyMainCamera`), with or without a sky panorama.
+The car shader blends it over the panorama/sky reflections by alpha (sharp/blurred by roughness) and mixes the
+diffuse copy at the normal into the ambient light (50 %).
+
 ### Lighting
 With a sky panorama for the track, reflections, diffuse light and the sun come from it (image-based lighting, see
 skies.md). Otherwise (and as a minimum on dark skies) the following applies.

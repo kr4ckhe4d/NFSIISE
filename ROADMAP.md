@@ -28,10 +28,10 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [ ] Sky of track tr05 (tunnel start) and the bonus track tr08 not checked
 
 ## 2. Car polish `[ ]`
-- [ ] Reflections of the scene in car paint and glass
+- [x] Reflections of the scene in car paint and glass (dynamic environment map accumulated from the screen)
 - [x] Draw cars before translucent effects (opaque parts right after the sky, glass at the end)
 - [ ] Verify cars in the rear-view mirror
-- [ ] Normal, roughness and metallic textures from glTF
+- [ ] Normal, roughness and metallic textures from glTF (CarConcept has none; do it with the first model that needs them)
 - [ ] Models for the other cars (needs sourcing; only the McLaren F1 has one)
 
 ## 3. Night and weather `[ ]`

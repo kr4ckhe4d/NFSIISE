@@ -1138,11 +1138,11 @@ REALIGN STDCALL void grBufferClear(GrColor_t color, GrAlpha_t alpha, uint16_t de
 #ifdef GL2_ENHANCED
 	if (glDrawBuffers)
 	{
-		/* Cleared background belongs to the world (sky) */
+		/* Cleared background belongs to the world (sky); green marks car models */
 		GLenum maskBuffer = GL_COLOR_ATTACHMENT1;
 		GLenum buffers[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
 		glDrawBuffers(1, &maskBuffer);
-		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		glDrawBuffers(2, buffers);
 	}

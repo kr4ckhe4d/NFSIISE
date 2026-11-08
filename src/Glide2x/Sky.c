@@ -44,7 +44,7 @@ static SkyState g_sky = {-2};
 /* Captured by skyHook() for the view being drawn */
 static struct
 {
-	BOOL pending;
+	BOOL pending, captured;
 	float camToWorld[16], proj[4];
 } g_skyView;
 static BOOL g_skyReplacing; /* The panorama was drawn in the current view: the game's sky gradient is skipped */
@@ -454,13 +454,17 @@ REALIGN STDCALL void skyHook(const uint8_t *camera)
 {
 	g_skyView.pending = false;
 	g_skyReplacing = false;
-	if (!gfx.skies || !camera)
+	if (!camera)
+		return;
+	/* The camera is also used without a sky (car model environment reflections) */
+	skyCameraToWorld((const int32_t *)(camera + 0x44), g_skyView.camToWorld);
+	g_skyView.captured = true;
+	if (!gfx.skies)
 		return;
 	if (g_sky.track != gfxCurrentTrack)
 		skyLoad(gfxCurrentTrack);
 	if (!g_sky.tex)
 		return;
-	skyCameraToWorld((const int32_t *)(camera + 0x44), g_skyView.camToWorld);
 	g_skyView.proj[0] = dword_4D5294;
 	g_skyView.proj[1] = flt_4D5298;
 	g_skyView.proj[2] = flt_4D529C;
@@ -472,14 +476,18 @@ REALIGN STDCALL void skyHook(const uint8_t *camera)
 static void skyDrawPending()
 {
 	static const float quad[8] = {-1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f};
+	if (g_skyView.captured)
+	{
+		g_skyView.captured = false;
+		if (g_fullWidthView)
+		{
+			memcpy(g_skyMain.camToWorld, g_skyView.camToWorld, sizeof g_skyMain.camToWorld);
+			g_skyMain.valid = true;
+		}
+	}
 	if (!g_skyView.pending)
 		return;
 	g_skyView.pending = false;
-	if (g_fullWidthView)
-	{
-		memcpy(g_skyMain.camToWorld, g_skyView.camToWorld, sizeof g_skyMain.camToWorld);
-		g_skyMain.valid = true;
-	}
 	if (!skyAlign(g_skyView.camToWorld) || !skyCreateProgram())
 		return;
 
@@ -524,5 +532,28 @@ static BOOL skyMainPanorama(int32_t unit, float camToWorld[16], float *yawRadian
 	memcpy(camToWorld, g_skyMain.camToWorld, sizeof(float) * 16);
 	*yawRadians = g_sky.yaw * (float)M_PI / 180.0f;
 	*elevationMin = g_sky.elevationMin;
+	return true;
+}
+
+static BOOL skyMainCamera(float camToWorld[16])
+{
+	if (!g_skyMain.valid)
+		return false;
+	memcpy(camToWorld, g_skyMain.camToWorld, sizeof(float) * 16);
+	return true;
+}
+
+/* Binds the dynamic environment (sharp, blurred, diffuse) to units "unit".."unit + 2"; false if not available */
+static BOOL skyEnvBind(int32_t unit)
+{
+	if (!g_post.ok || !g_post.active || !g_post.env2.tex || !g_skyMain.valid)
+		return false;
+	glActiveTexture(GL_TEXTURE0 + unit);
+	glBindTexture(GL_TEXTURE_2D, g_post.env[g_post.envCur].tex);
+	glActiveTexture(GL_TEXTURE0 + unit + 1);
+	glBindTexture(GL_TEXTURE_2D, g_post.env1.tex);
+	glActiveTexture(GL_TEXTURE0 + unit + 2);
+	glBindTexture(GL_TEXTURE_2D, g_post.env2.tex);
+	glActiveTexture(GL_TEXTURE0);
 	return true;
 }
