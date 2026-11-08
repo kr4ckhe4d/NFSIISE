@@ -45,7 +45,7 @@ static SkyState g_sky = {-2};
 static struct
 {
 	BOOL pending, captured;
-	float camToWorld[16], proj[4];
+	float camToWorld[16], proj[4], camPos[3];
 } g_skyView;
 static BOOL g_skyReplacing; /* The panorama was drawn in the current view: the game's sky gradient is skipped */
 static void skySetFog(BOOL on);
@@ -482,6 +482,16 @@ REALIGN STDCALL void skyHook(const uint8_t *camera)
 		return;
 	/* The camera is also used without a sky (car model environment reflections) */
 	skyCameraToWorld((const int32_t *)(camera + 0x44), g_skyView.camToWorld);
+	g_skyView.proj[0] = dword_4D5294;
+	g_skyView.proj[1] = flt_4D5298;
+	g_skyView.proj[2] = flt_4D529C;
+	g_skyView.proj[3] = flt_4D52A0;
+	{
+		const int32_t *pos = (const int32_t *)(camera + 8);
+		g_skyView.camPos[0] = pos[0] / 65536.0f;
+		g_skyView.camPos[1] = pos[1] / 65536.0f;
+		g_skyView.camPos[2] = pos[2] / 65536.0f;
+	}
 	g_skyView.captured = true;
 	if (!gfx.skies)
 		return;
@@ -489,10 +499,6 @@ REALIGN STDCALL void skyHook(const uint8_t *camera)
 		skyLoad(gfxCurrentTrack);
 	if (!g_sky.tex)
 		return;
-	g_skyView.proj[0] = dword_4D5294;
-	g_skyView.proj[1] = flt_4D5298;
-	g_skyView.proj[2] = flt_4D529C;
-	g_skyView.proj[3] = flt_4D52A0;
 	g_skyView.pending = true;
 }
 

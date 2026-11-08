@@ -197,6 +197,14 @@ The game's low resolution sky can be replaced with high resolution panoramas (8K
 
 `tools/skies/install-skies.sh` downloads a matching set of public domain (CC0) skies from [Poly Haven](https://polyhaven.com/hdris) for every track and converts them with Blender into `~/.nfs2se/skies/trNN.jpg` + `trNN.txt`. Any equirectangular HDR can be used: `blender -b --python tools/skies/make_sky.py -- sky.hdr ~/.nfs2se/skies/tr02 --brightness 0.2` (see the script for options; `trNN.txt` can be edited afterwards). `Skies=0` disables them.
 
+### Distant terrain (experimental)
+
+The game shows distant landscape as flat cut-outs (a ring of pictures around the camera and a few large cards). With real terrain installed they are hidden and a real 3D landscape is drawn instead, built from public elevation data of a real place that matches the track: Outback gets the area around Uluru and Kata Tjuta (the game's own backdrop shows Uluru). The track's geometry gets lighter fog and dissolves into the terrain at its draw distance.
+
+![Before: flat cut-outs; after: real terrain with Kata Tjuta on the horizon](screenshots/readme/terrain.jpg)
+
+`tools/terrain/install-terrain.sh` builds it with Blender from AWS Terrain Tiles (open elevation data) into `~/.nfs2se/terrain/trNN/` (currently Outback only). `Terrain=0` disables it.
+
 ### Car models (experimental)
 
 Cars can be replaced with detailed 3D models. The game still runs its own physics and animation; hooks in the game code pass each car's position and orientation to the renderer, which skips the original low-poly car and draws the model instead with physically based shading (paint with clear coat, glass, lights). The model is fitted to the size of the original car automatically and gets all post-processing effects, including reflections on wet roads. With a sky panorama for the track (see Skies) the car is lit by it: the paint and glass reflect the real sky and the sun, and diffuse light comes from the sky around it.

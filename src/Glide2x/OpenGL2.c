@@ -182,6 +182,8 @@ const char g_fShaderSrc[] =
 	"uniform vec4 uSkyFogClip;\n"     /* Its clip window in game units: x, y, width, height */
 	"uniform vec2 uSkyFogParams;\n"   /* Panorama yaw (radians), elevation of its bottom row (degrees) */
 	"uniform float uSkyFogMix;\n"     /* How much of the game's fog colour stays (its sky glow layers use it too) */
+	/* Distant terrain (Terrain.c): lighter fog, geometry dissolves near the draw distance instead (terrain behind) */
+	"uniform vec3 uTerrainView;\n"    /* fog scale, dissolve start, dissolve end (metres) */
 	"#endif\n"
 
 	"void main()\n"
@@ -220,6 +222,18 @@ const char g_fShaderSrc[] =
 			"float el = clamp(degrees(asin(clamp(d.y, -1.0, 1.0))), 0.5, 6.0);\n"
 			"vec2 uv = vec2(fract((atan(d.x, d.z) + uSkyFogParams.x) / 6.2831853 + 0.5), (90.0 - el) / (90.0 - uSkyFogParams.y));\n"
 			"fogColor = mix(texture2D(uSkyFogTex, uv).rgb, uFogColor, uSkyFogMix);\n"
+		"}\n"
+	"#endif\n"
+	"#ifdef ENHANCED\n"
+		"float tw = 1.0 / max(vOow, 1e-6);\n"
+		/* Only the track's geometry (the game's sky glow layers are farther and keep their fog) */
+		"if (uTerrainView.z > 0.0 && vMask > 0.999 && tw < uTerrainView.z * 1.5)\n"
+		"{\n"
+			"float w = tw;\n"
+			"float cell = mod(dot(floor(gl_FragCoord.xy), vec2(1.0, 4.0)), 16.0) / 16.0 + mod(floor(gl_FragCoord.y), 2.0) / 32.0;\n"
+			"if (cell < smoothstep(uTerrainView.y, uTerrainView.z, w))\n"
+				"discard;\n"
+			"fog *= uTerrainView.x;\n"
 		"}\n"
 	"#endif\n"
 		"ret.rgb = mix(ret.rgb, fogColor, fog * uFogEnabled);\n"
@@ -393,6 +407,7 @@ static BOOL g_depthMask;
 static GLenum g_blendFuncDFactor = GL_ONE_MINUS_SRC_ALPHA;
 static GLuint g_boundTexture;
 static uint8_t g_boundAlphaMode; /* AlphaOpaque, AlphaCutout or AlphaBlend (Textures.c) */
+static uint64_t g_boundHash;     /* Content hash of the bound texture (Textures.c) */
 
 /* Fog table texture (per-pixel fog) */
 static GLuint g_fogTableTexture;
@@ -461,6 +476,7 @@ static void drawTriangles();
 static void useGameProgram(BOOL gameProgram);
 # include "Sky.c"
 # include "CarModels.c"
+# include "Terrain.c"
 #endif
 
 static inline BOOL loadShaders()
@@ -1333,6 +1349,7 @@ static inline uint8_t worldMask(const GrVertex *a, const GrVertex *b, const GrVe
 		/* After the sky backdrop, before the first 3D triangle of the view: the sky, then opaque car models */
 		skyDrawPending();
 		skyProcessGradient();
+		terrainQueue();
 		carModelsDraw(true);
 	}
 #endif
@@ -1387,6 +1404,9 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 		if (g_skyReplacing && (g_textureEnabled < 0.5f || g_boundAlphaMode == AlphaOpaque))
 			return;
 	}
+	/* The game's stand-ins for distant terrain are hidden while the real terrain is drawn */
+	if (terrainHidesTriangle(a, b, c))
+		return;
 #endif
 	const uint8_t world = worldMask(a, b, c, &mapping);
 #ifdef GL2_ENHANCED
@@ -1644,6 +1664,7 @@ REALIGN STDCALL void grTexSource(GrChipID_t tmu, uint32_t startAddress, uint32_t
 	}
 	g_boundTexture = ti->id;
 	g_boundAlphaMode = ti->alphaMode;
+	g_boundHash = ti->hash;
 	glBindTexture(GL_TEXTURE_2D, g_boundTexture);
 
 	alphaCutout = (ti->alphaMode == AlphaCutout) ? 1.0f : 0.0f;

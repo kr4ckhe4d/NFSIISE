@@ -29,6 +29,13 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Road SSR misses sample the panorama (sharp when wet, blurred when dry)
 - [ ] Sky of track tr05 (tunnel start) and the bonus track tr08 not checked
 
+## 1b. Distant terrain from real elevation data `[~]`
+- [x] Road centreline from the track's .col file; real DEM terrain around the track (Outback: Uluru / Kata Tjuta)
+- [x] Hide the game's flat stand-ins (100 m terrain ring, large mountain cards); lighter game fog + dissolve
+- [ ] Check Outback on the real GPU; tune fog/dissolve and the choice of place
+- [ ] Other tracks: real places and their stand-in textures
+- [ ] Index the mesh (smaller files), better surface colours
+
 ## 2. Car polish `[ ]`
 - [x] Reflections of the scene in car paint and glass (dynamic environment map accumulated from the screen)
 - [x] Draw cars before translucent effects (opaque parts right after the sky, glass at the end)

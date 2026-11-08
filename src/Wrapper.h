@@ -85,6 +85,7 @@ typedef struct
 	BOOL widescreen;          /* Hor+ widescreen: wider field of view on wide windows */
 	BOOL carModels;           /* Replacement car models from "<settings>/models/<car>/model.cmdl" */
 	BOOL skies;               /* High resolution skies from "<settings>/skies/trNN.txt" */
+	BOOL terrain;             /* Distant terrain from "<settings>/terrain/trNN/" */
 } GfxSettings;
 extern GfxSettings gfx;
 extern int32_t gfxCurrentTrack; /* Current track number, -1 if unknown */

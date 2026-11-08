@@ -47,6 +47,12 @@ header (140 bytes): u32 version (2), u32 part pointers[32] (runtime, filled by t
 - u8 indices: max 256 vertices per part.
 Conclusion: realistic cars can't be done inside GEO; see [car-models.md](car-models.md).
 
+## Track collision file (`trNN.col`)
+"COLL", u32 version (11), u32 size, u32 block count (4), u32 block offsets. Block 4 (after a 24-byte header) is the
+road centreline ("virtual road"): 36-byte records starting with int32 16.16 x, y, z in world metres (same frame as
+the game's objects and camera). Outback: 1867 points, closed loop, ~2.0 x 2.0 km, heights -96..50 m. Used by
+tools/terrain/make_terrain.py.
+
 ## Others (not reverse engineered)
 - `gamedata/carmodel/pc/*.qfs`: car textures (QFS = RefPack-compressed FSH). `*a.qfs` variants exist per car.
 - `gamedata/tracks/se/trNN.trk` (+ `.col`, `.can`, `.qfs`): tracks; needed for scenery/tree replacement.

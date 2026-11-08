@@ -12,6 +12,7 @@ Progress is tracked in [ROADMAP.md](../../ROADMAP.md) at the repository root; up
 | File | Contents |
 |---|---|
 | [skies.md](skies.md) | High resolution sky panoramas: hook, drawing, sun alignment, sky files, conversion and install scripts |
+| [terrain.md](terrain.md) | Distant terrain from real elevation data: generator, hiding the game's stand-ins, fog/dissolve |
 | [car-models.md](car-models.md) | Replacing cars with detailed glTF models: pipeline, `.cmdl` format, hooks, fitting, wheels, lighting, adding a new car |
 | [hd-textures.md](hd-textures.md) | HD texture packs: dump, hashing, Real-ESRGAN upscale, replacement loading |
 | [game-formats.md](game-formats.md) | Game data formats reverse engineered so far: VIV/BIGF archives, GEO car models, engine limits |

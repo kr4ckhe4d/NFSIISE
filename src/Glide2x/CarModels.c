@@ -39,7 +39,7 @@ typedef struct
 
 typedef struct
 {
-	char name[32];
+	char name[64];          /* Directory relative to the settings directory, e.g. "models/mcf1" */
 	CarBatch *batches;
 	int32_t batchCount;
 	float bmin[3], bmax[3];
@@ -53,6 +53,7 @@ typedef struct
 	CarModel *model;
 	float scale, offset[3]; /* Model space (mirrored X) -> car space */
 	BOOL fitted;
+	BOOL terrain;           /* Distant terrain (Terrain.c): world coordinates, no car marking, own fog */
 	char name[32];
 } CarGeo;
 
@@ -64,6 +65,18 @@ typedef struct
 	BOOL opaqueDrawn;        /* Opaque parts were drawn early (before the scene's polygons) */
 	float proj[4];           /* Game projection: scale X, scale Y, center X, center Y */
 } CarDraw;
+
+/* Terrain.c */
+static struct
+{
+	int32_t track;
+	BOOL active;            /* Terrain drawn for the current track: the game's stand-ins are hidden */
+	CarGeo geo;
+	uint64_t hide[64];
+	int32_t hideCount;
+	float fogCap, visibility, fogMax;
+	float fogScale, dissolve[2];
+} g_terrain = {-2};
 
 static CarGeo   g_carGeos[CAR_MAX_GEOS];
 static int32_t  g_carGeoCount;
@@ -101,7 +114,7 @@ static CarModel *carFindModel(const char *name)
 	for (i = 0; i < g_carModelCount; ++i)
 		if (!strcmp(g_carModels[i].name, name))
 			return g_carModels[i].failed ? NULL : &g_carModels[i];
-	snprintf(path, sizeof path, "%s/models/%s/model.cmdl", getSettingsDir(), name);
+	snprintf(path, sizeof path, "%s/%s/model.cmdl", getSettingsDir(), name);
 	FILE *f = fopen(path, "rb");
 	if (!f || g_carModelCount >= CAR_MAX_MODELS)
 	{
@@ -122,7 +135,7 @@ static BOOL carLoadModel(CarModel *m)
 	char path[1024], magic[4];
 	uint32_t version, count, i;
 	FILE *f;
-	snprintf(path, sizeof path, "%s/models/%s/model.cmdl", getSettingsDir(), m->name);
+	snprintf(path, sizeof path, "%s/%s/model.cmdl", getSettingsDir(), m->name);
 	f = fopen(path, "rb");
 	m->failed = true;
 	if (!f)
@@ -195,7 +208,7 @@ static BOOL carLoadModel(CarModel *m)
 			char texPath[1200];
 			int32_t w, h, comp;
 			uint8_t *pixels;
-			snprintf(texPath, sizeof texPath, "%s/models/%s/%s", getSettingsDir(), m->name, tex);
+			snprintf(texPath, sizeof texPath, "%s/%s/%s", getSettingsDir(), m->name, tex);
 			pixels = stbi_load(texPath, &w, &h, &comp, 4);
 			if (pixels)
 			{
@@ -304,7 +317,11 @@ REALIGN STDCALL void carModelLoaded(const char *fileName, const uint8_t *geo)
 		g = &g_carGeos[g_carGeoCount++];
 	}
 	g->geo = geo;
-	g->model = carFindModel(name);
+	{
+		char dir[64];
+		snprintf(dir, sizeof dir, "models/%s", name);
+		g->model = carFindModel(dir);
+	}
 	g->fitted = false;
 	snprintf(g->name, sizeof g->name, "%s", name);
 }
@@ -497,6 +514,11 @@ static const char g_carFragmentSrc[] =
 	"uniform sampler2D uEnv1;\n"
 	"uniform sampler2D uEnv2;\n"
 	"uniform float uHasEnv;\n"
+	/* Distant terrain: no car marking, the game's fog (up to a distance) and aerial perspective */
+	"uniform float uTerrain;\n"
+	"uniform sampler2D uFogTable;\n"
+	"uniform vec3 uGameFogColor;\n"
+	"uniform vec4 uTerrainFog;\n"  /* game fog up to (m), visibility (m), max game fog, share of the game's fog colour */
 	"vec2 envUV(vec3 w) { return vec2(atan(w.x, w.z) / 6.2831853 + 0.5, asin(clamp(w.y, -1.0, 1.0)) / 3.14159265 + 0.5); }\n"
 	"vec3 toLinear(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }\n"
 	"vec3 iblDecode(vec3 c) { vec3 l = toLinear(c); return l / max(vec3(1.0) - 0.75 * l, vec3(1.0 / 64.0)); }\n"
@@ -629,10 +651,27 @@ static const char g_carFragmentSrc[] =
 	"		color = env * Fg + vec3(0.01, 0.012, 0.015);\n"
 	"		alpha = clamp(0.35 + Fg, 0.0, 1.0);\n"
 	"	}\n"
+	"	if (uTerrain > 0.5)\n"
+	"	{\n"
+	"		float w = clamp(min(vPos.z, uTerrainFog.x), 0.0, 65535.0);\n"
+	"		float hi = floor(w / 256.0), lo = floor(w - hi * 256.0);\n"
+	"		float gf = min(texture2D(uFogTable, (vec2(lo, hi) + 0.5) / 256.0).r, uTerrainFog.z);\n"
+	"		float f = 1.0 - (1.0 - gf) * exp(-vPos.z / uTerrainFog.y);\n"
+	"		vec3 gameFog = toLinear(uGameFogColor);\n"
+	"		vec3 fogColor = gameFog / max(vec3(1.0) - 0.75 * gameFog, vec3(1.0 / 64.0));\n"
+	"		if (uHasIbl > 0.5)\n"
+	"		{\n"
+	"			vec3 d = normalize((uCamToWorld * vec4(normalize(vPos), 0.0)).xyz);\n"
+	"			float el = clamp(degrees(asin(clamp(d.y, -1.0, 1.0))), 0.5, 6.0);\n"
+	"			vec2 uv = vec2(fract((atan(d.x, d.z) + uIblParams.x) / 6.2831853 + 0.5), (90.0 - el) / (90.0 - uIblParams.y));\n"
+	"			fogColor = mix(iblDecode(texture2D(uIbl1, uv).rgb), fogColor, uTerrainFog.w);\n"
+	"		}\n"
+	"		color = mix(color, fogColor, f);\n"
+	"	}\n"
 	/* The scene is stored in the game's gamma space, highlights are compressed like the post-processing expects */
 	"	color = color / (1.0 + color * 0.75);\n"
 	"	gl_FragData[0] = vec4(pow(color, vec3(1.0 / 2.2)), alpha);\n"
-	"	gl_FragData[1] = vec4(1.0, 1.0, 0.0, alpha);\n"
+	"	gl_FragData[1] = vec4(1.0, 1.0 - uTerrain, 0.0, alpha);\n"
 	"}\n"
 ;
 
@@ -727,8 +766,11 @@ static void carModelsDraw(BOOL opaqueOnly)
 	glEnableVertexAttribArray(1);
 	glEnableVertexAttribArray(2);
 	glUniform1i(glGetUniformLocation(g_carProg, "uTex"), 0);
-	glUniform1i(glGetUniformLocation(g_carProg, "uSky"), 1);
-	glActiveTexture(GL_TEXTURE1);
+	glUniform1i(glGetUniformLocation(g_carProg, "uSky"), 11);
+	glUniform1i(glGetUniformLocation(g_carProg, "uFogTable"), 1); /* The game's fog table stays on unit 1 */
+	glUniform3f(glGetUniformLocation(g_carProg, "uGameFogColor"), g_fogColor[0], g_fogColor[1], g_fogColor[2]);
+	glUniform4f(glGetUniformLocation(g_carProg, "uTerrainFog"), g_terrain.fogCap, g_terrain.visibility, g_terrain.fogMax, g_sky.tex ? g_sky.gameFog : 1.0f);
+	glActiveTexture(GL_TEXTURE11);
 	glBindTexture(GL_TEXTURE_2D, g_post.sky.tex);
 	glActiveTexture(GL_TEXTURE0);
 	{
@@ -797,6 +839,7 @@ static void carModelsDraw(BOOL opaqueOnly)
 		mv[3] = mv[7] = mv[11] = 0.0f;
 		mv[15] = 1.0f;
 		glUniformMatrix4fv(glGetUniformLocation(g_carProg, "uModelView"), 1, GL_FALSE, mv);
+		glUniform1f(glGetUniformLocation(g_carProg, "uTerrain"), g->terrain ? 1.0f : 0.0f);
 		{
 			/*
 			 * Camera space (metres, X right, Y up, Z forward) -> clip space, matching the game: the screen

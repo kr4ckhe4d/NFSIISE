@@ -96,6 +96,9 @@
 #Skies:
 #	1 - High resolution sky panoramas from "<settings directory>/skies/trNN.txt" when available (default)
 #	0 - Original skies
+#Terrain:
+#	1 - Real distant terrain from "<settings directory>/terrain/trNN/" when available (default)
+#	0 - The game's flat distant scenery
 #JoystickApplyDeadzone:
 #	Apply game default deadzone for joysticks
 #JoystickDisableAxesInMenu:
@@ -184,6 +187,7 @@ FocalLength=320
 Widescreen=1
 CarModels=1
 Skies=1
+Terrain=1
 LinuxCOM1=/dev/ttyS0
 LinuxCOM2=/dev/ttyS1
 LinuxCOM3=/dev/ttyUSB0
