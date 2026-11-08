@@ -12,6 +12,7 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Replacement car models: glTF -> Blender -> `.cmdl`, game hooks, PBR shading (`fadaa97`)
 - [x] Car model wheels spin and steer (`92416e1`)
 - [x] Handoff docs and reusable test/format tools (`d96ff68`)
+- [x] High resolution sky panoramas per track with automatic sun alignment (`0feecff`)
 
 ## 1. Skies and image-based lighting `[~]`
 - [x] Find where the game draws the sky backdrop and where the camera orientation is available every frame
