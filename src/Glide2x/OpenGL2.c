@@ -4,6 +4,7 @@
 
 #include <SDL2/SDL_stdinc.h>
 #include <SDL2/SDL_video.h>
+#include <SDL2/SDL_timer.h>
 
 #ifdef GLES2
 # include <SDL2/SDL_opengles2.h>
@@ -477,6 +478,7 @@ static void drawTriangles();
 static void useGameProgram(BOOL gameProgram);
 # include "Sky.c"
 # include "CarModels.c"
+# include "Spray.c"
 # include "Terrain.c"
 #endif
 

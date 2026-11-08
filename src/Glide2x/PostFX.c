@@ -645,6 +645,27 @@ static const char g_postCompositeSrc[] =
 	"uniform float uReflections;\n"
 	"uniform float uShaftStrength;\n"
 	"uniform float uHaze;\n"
+	"uniform float uRainDrops;\n" /* Raindrops on the camera: strength (0 - off), time (seconds), screen aspect */
+	"uniform float uTime;\n"
+	"uniform float uAspect;\n"
+	"vec3 dropHash(vec2 c) { vec3 p = fract(vec3(c.xyx) * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yzz) * p.zyx); }\n"
+	/* One layer of drops: returns the refraction offset (xy) and the drop's coverage (z) */
+	"vec3 dropLayer(vec2 uv, float cells, float t, float density)\n"
+	"{\n"
+	"	vec2 p = uv * vec2(uAspect, 1.0) * cells;\n"
+	"	vec2 cell = floor(p);\n"
+	"	vec3 h = dropHash(cell);\n"
+	"	if (h.y > density) return vec3(0.0);\n"
+	"	float phase = fract(t * (0.15 + 0.1 * h.z) + h.x);\n"
+	"	vec2 c = vec2(0.3 + 0.4 * h.z, 0.75 - 0.5 * phase * phase);\n" /* Slides down, faster as it grows */
+	"	float r = 0.12 + 0.14 * h.x;\n"
+	"	vec2 d = (fract(p) - c) * vec2(1.0, 0.85);\n"
+	"	float l = length(d) / r;\n"
+	"	if (l > 1.0) return vec3(0.0);\n"
+	"	float fade = smoothstep(0.0, 0.08, phase) * (1.0 - smoothstep(0.75, 1.0, phase));\n"
+	"	vec2 n = d / r;\n"
+	"	return vec3(-n * r / cells * 1.6 / vec2(uAspect, 1.0), fade * smoothstep(1.0, 0.8, l));\n"
+	"}\n"
 	"uniform float uMotion;\n" /* Motion blur: exposure / frame time, camera motion (previous = M * current + T) */
 	"uniform mat3 uMotionM;\n"
 	"uniform vec3 uMotionT;\n"
@@ -692,6 +713,18 @@ static const char g_postCompositeSrc[] =
 	"	vec4 maskAll = texture2D(uMask, vUV);\n"
 	"	float mask = maskAll.r;\n"
 	"	float depth = texture2D(uDepth, vUV).r;\n"
+	/* Raindrops on the camera (world view only): each drop refracts (flips) the picture behind it, with a dark rim */
+	"	if (uRainDrops > 0.0 && mask > 0.5 && !inSub(vUV))\n"
+	"	{\n"
+	"		vec3 d1 = dropLayer(vUV, 9.0, uTime, 0.35 * uRainDrops);\n"
+	"		vec3 d2 = dropLayer(vUV + 0.37, 17.0, uTime * 1.3, 0.45 * uRainDrops);\n"
+	"		vec3 d = d1.z > d2.z ? d1 : d2;\n"
+	"		if (d.z > 0.0)\n"
+	"		{\n"
+	"			vec3 refr = texture2D(uColor, clamp(vUV + d.xy, 0.001, 0.999)).rgb;\n"
+	"			src = mix(src, refr * mix(0.7, 1.08, d.z), min(1.0, d.z * 1.5));\n"
+	"		}\n"
+	"	}\n"
 	/* Camera motion blur of the scenery (static world assumed; the cars, HUD and mirror stay sharp) */
 	"	setView(vUV);\n"
 	"	if (uMotion > 0.0 && mask > 0.5 && maskAll.g < 0.5 && !gSub)\n"
@@ -1658,6 +1691,9 @@ static void postEffects()
 		float m[9], t[3], dt = 0.0f;
 		const BOOL motion = gfx.motionBlur > 0.0f && skyCameraMotion(m, t, &dt);
 		postUniform1f(g_post.compositeProg, "uMotion", motion ? SDL_min(gfx.motionBlur * (1.0f / 60.0f) / dt, 3.0f) : 0.0f);
+		postUniform1f(g_post.compositeProg, "uRainDrops", g_rainLevel > 0.3f ? gfx.rainDrops * g_rainLevel : 0.0f);
+		postUniform1f(g_post.compositeProg, "uTime", (SDL_GetTicks() % 1000000u) / 1000.0f);
+		postUniform1f(g_post.compositeProg, "uAspect", (float)g_virtualWidth / 480.0f);
 		if (motion)
 		{
 			glUniformMatrix3fv(glGetUniformLocation(g_post.compositeProg, "uMotionM"), 1, GL_FALSE, m);

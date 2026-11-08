@@ -407,6 +407,9 @@ typedef struct
 } CarHeadlight;
 static CarHeadlight g_hlCandidate, g_hlFrame;
 
+static void sprayCar(const uint8_t *object); /* Spray.c */
+static void sprayDraw();
+
 static void carHeadlightCandidate(const float rot[9], const float origin[3])
 {
 	const float dist = SDL_sqrtf(origin[0] * origin[0] + origin[1] * origin[1] + origin[2] * origin[2]);
@@ -515,6 +518,8 @@ REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const in
 		for (r = 0; r < 3; ++r)
 			origin[r] = (t[r] - (pos[0] / 65536.0f * m[0 * 3 + r] + pos[1] / 65536.0f * m[1 * 3 + r] + pos[2] / 65536.0f * m[2 * 3 + r])) / 65536.0f;
 		carHeadlightCandidate(rot, origin);
+		if (object)
+			sprayCar(object);
 	}
 	if (!gfx.carModels || !g_carGeos[gi].model || g_carGeos[gi].model->failed)
 		return;
@@ -994,4 +999,5 @@ static void carModelsDraw(BOOL opaqueOnly)
 REALIGN STDCALL void carModelsFlush()
 {
 	carModelsDraw(false);
+	sprayDraw();
 }

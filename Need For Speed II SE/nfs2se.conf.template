@@ -89,6 +89,10 @@
 #	Screen-space sun shadows (cars, walls, trees on the road) on tracks with a sunny sky, 0 - off (default: 0.5)
 #MotionBlur:
 #	Camera motion blur (scenery only, not the cars), as a fraction of a 1/60 s frame, 0 - off (default: 0.5)
+#RainSpray:
+#	Spray behind fast cars while it rains, 0 - off (default: 1.0)
+#RainDrops:
+#	Raindrops running on the camera while it rains, 0 - off (default: 0.5)
 #FocalLength:
 #	Game projection focal length at 640x480, used to reconstruct geometry for SSAO (default: 320)
 #Widescreen:
@@ -192,6 +196,8 @@ SunShafts=0.6
 Haze=0.25
 Shadows=0.5
 MotionBlur=0.5
+RainSpray=1.0
+RainDrops=0.5
 FocalLength=320
 Widescreen=1
 HudCorners=1

@@ -54,8 +54,8 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Headlights of the player car lighting the road and scenery (low beam, sky file `headlights`) - 222651c
 - [x] Night darkening of the scenery with lights kept (`night_ambient`, Proving Grounds 0.30) - 222651c
 - [ ] Owner check on the real GPU; headlights of other cars, lens flares
-- [ ] Spray behind cars on wet roads
-- [ ] Raindrops on the camera in the rain
+- [x] Spray behind fast cars while it rains (`RainSpray`, Spray.c: world-space mist particles from the rear wheels)
+- [x] Raindrops running on the camera (`RainDrops`, procedural refracting drops in the composite)
 
 ## 4. Shadows `[~]`
 - [x] Screen-space sun shadows from the scene depth (cars, walls, fences, trees), `Shadows`, sunny skies - bdb4edc

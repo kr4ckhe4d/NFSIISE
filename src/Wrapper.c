@@ -73,6 +73,8 @@ GfxSettings gfx = {
 	0.25f, /* haze */
 	0.5f,  /* shadows */
 	0.5f,  /* motionBlur */
+	1.0f,  /* rainSpray */
+	0.5f,  /* rainDrops */
 	320.0f, /* focalLength */
 	true,  /* widescreen */
 	true,  /* hudCorners */
@@ -428,6 +430,8 @@ static BOOL parseGfxSetting(const char *line)
 		parseGfxFloat(line, "Haze", &gfx.haze, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "Shadows", &gfx.shadows, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "MotionBlur", &gfx.motionBlur, 0.0f, 2.0f) ||
+		parseGfxFloat(line, "RainSpray", &gfx.rainSpray, 0.0f, 2.0f) ||
+		parseGfxFloat(line, "RainDrops", &gfx.rainDrops, 0.0f, 1.0f) ||
 		parseGfxFloat(line, "FocalLength", &gfx.focalLength, 50.0f, 2000.0f) ||
 		parseGfxBool(line, "Widescreen", &gfx.widescreen) ||
 		parseGfxBool(line, "HudCorners", &gfx.hudCorners) ||

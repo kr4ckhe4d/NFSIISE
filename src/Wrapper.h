@@ -83,6 +83,8 @@ typedef struct
 	float haze;               /* Distance haze tinted by the sky (0 = off) */
 	float shadows;            /* Screen-space sun shadows strength (0 = off) */
 	float motionBlur;         /* Camera motion blur, fraction of a 1/60 s frame (0 = off) */
+	float rainSpray;          /* Spray behind fast cars while it rains (0 = off) */
+	float rainDrops;          /* Raindrops on the camera while it rains (0 = off) */
 	float focalLength;        /* Game projection focal length in 640x480 pixels (used by SSAO) */
 	BOOL widescreen;          /* Hor+ widescreen: wider field of view on wide windows */
 	BOOL hudCorners;          /* Widescreen: bottom HUD boxes (minimap, record) pinned to the screen corners in a race */

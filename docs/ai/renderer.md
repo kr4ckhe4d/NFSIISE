@@ -46,6 +46,12 @@ clip windows lying entirely in x <= 140 or x >= 480 with y >= 300 (game units) m
 record box, minimap (its own clip window 532-640 x 318-453) and the name box. Layout of the race HUD (640x480): top
 bar 0-620 x 0-40 (speedometer, timer, position, lap), mirror clip 486-636 x 40-110, record 0-110 x 440-480, minimap
 and name 520-640 x 300-480. Menus and the pause panel are centred and unaffected.
+Rain (`g_rainLevel` > 0.3): `Spray.c` tracks every car body seen in `carPartHook` (object + 0x74 position, + 0x50
+orientation), emits world-space mist particles behind the rear wheels of cars faster than 8 m/s (rate by speed and
+rain level), simulates them (drag, light gravity, growth) and draws them at `carModelsFlush` for the main view as
+soft sprites with the car models' projection, depth tested, no depth write, tinted by the fog colour. Raindrops on the
+camera: two layers of hashed cells in the composite shader, each drop slides down, fades and refracts (flips) the
+picture behind it (`uRainDrops`, `uTime`).
 Car models still queued when 2D follows the 3D view (pause menu: no `carModelsFlush`) are drawn before that 2D.
 Motion blur (`MotionBlur`, start of the composite shader): each world pixel is reprojected with the previous frame's
 main camera (`skyCameraMotion()` in Sky.c from `g_skyMain`, latched in `skyDrawPending` for full-width views; the
