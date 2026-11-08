@@ -6,7 +6,7 @@
 # Elevation: AWS Terrain Tiles (open data). Output: <settings>/terrain/trNN/ (model.cmdl, terrain.png, terrain.txt).
 # Terrain=1 in nfs2se.conf (default) draws it; the game's own flat stand-ins (its 100 m terrain ring and the
 # textures listed in terrain.txt "hide") are hidden.
-set -e
+set -eo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GAME="$HERE/../../Need For Speed II SE"
 case "$(uname)" in

@@ -1,6 +1,9 @@
 # Testing without a screen
 
-Everything below works headless over SSH; nothing touches the owner's desktop or `~/.nfs2se`.
+Everything below works headless over SSH; nothing touches the owner's desktop or `~/.nfs2se`. When the owner is
+logged in on Wayland, `WAYLAND_DISPLAY` is set and SDL would open the game on their desktop: the scripts unset it and
+force `SDL_VIDEODRIVER=x11`. Don't `pkill -f race.sh` from a shell whose own command line contains that text (it
+kills itself). Software rendering at 5120x1440 is too slow to reach the race; test 32:9 at 2560x720.
 
 ## Synthetic renderer test (no game data)
 ```sh

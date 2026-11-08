@@ -55,8 +55,15 @@ for ty in range(int(np.floor(y0)), int(np.floor(y1)) + 1):
     for tx in range(int(np.floor(x0)), int(np.floor(x1)) + 1):
         url = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/%d/%d/%d.png' % (Z, tx, ty)
         path = os.path.join(out, 'tile_%d_%d.png' % (tx, ty))
-        if not os.path.exists(path):
-            urllib.request.urlretrieve(url, path)
+        for attempt in range(5):
+            if os.path.exists(path):
+                break
+            try:
+                urllib.request.urlretrieve(url, path + '.part')
+                os.rename(path + '.part', path)
+            except OSError as e:
+                print('download failed (%s), retrying' % e)
+                import time; time.sleep(2)
         img = bpy.data.images.load(path)
         px = np.empty(256 * 256 * 4, dtype=np.float32)
         img.colorspace_settings.name = 'Non-Color'
@@ -112,11 +119,20 @@ def blur(a, k):
     ker = np.exp(-np.arange(-3 * k, 3 * k + 1) ** 2 / (2.0 * k * k)); ker /= ker.sum()
     a = np.apply_along_axis(lambda v: np.convolve(v, ker, 'same'), 0, a)
     return np.apply_along_axis(lambda v: np.convolve(v, ker, 'same'), 1, a)
+# The ground must stay below every bit of road the camera can be on nearby (a blurred average of the road heights
+# rose up to 65 m above the road where it dips into Outback's canyon): lowest road height within ~1 km, then
+# spread outwards to the rest of the grid, smoothed without ever rising.
+def min3(a):
+    p = np.pad(a, 1, mode='edge')
+    return np.min([p[1 + dr:N + 1 + dr, 1 + dc:N + 1 + dc] for dr in (-1, 0, 1) for dc in (-1, 0, 1)], axis=0)
+ymin = np.full((N, N), np.inf)
+np.minimum.at(ymin, (ri, rj), road[:, 1])
+for _ in range(max(2, int(1000 / cell))):
+    ymin = min3(ymin)
+while np.isinf(ymin).any():
+    ymin = np.where(np.isinf(ymin), min3(ymin), ymin)
 k = max(2, int(600 / cell))
-ty_s = blur(ysum, k) / np.maximum(blur(hit, k), 1e-9)
-far = road[:, 1].mean()
-w_near = np.clip(blur(hit, k) * 50, 0, 1)
-track_y = ty_s * w_near + far * (1 - w_near)
+track_y = np.minimum(ymin, blur(ymin, k))
 s = np.clip((dist - 400.0) / 2100.0, 0, 1); s = s * s * (3 - 2 * s)
 height = track_y - 6.0 - 20.0 * (dist < 250) * (1 - dist / 250.0) + s * rel
 print('distance to track: min', dist.min(), 'max', dist.max())

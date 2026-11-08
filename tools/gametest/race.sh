@@ -58,7 +58,7 @@ for try in 1 2 3; do
 	[[ -n "${SKIES:-}" ]] && cp -r "$SKIES" "$TEST/home/.nfs2se/skies"
 	[[ -n "${TERRAIN:-}" ]] && cp -r "$TERRAIN" "$TEST/home/.nfs2se/terrain"
 
-	(cd "$GAME" && env HOME="$TEST/home" SDL_AUDIODRIVER=dummy "$@" ${BIN:-./nfs2se} > "$OUT/game.log" 2>&1 &)
+	(cd "$GAME" && env -u WAYLAND_DISPLAY HOME="$TEST/home" SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy "$@" ${BIN:-./nfs2se} > "$OUT/game.log" 2>&1 &)
 	sleep 8
 	# Title -> main menu -> location -> track -> race
 	"$XKEY" Escape sleep:3000 Return sleep:4500 Down sleep:900 Return sleep:5000 $RIGHTS \

@@ -21,5 +21,5 @@ if [[ -n "$GFXTEST_NO_XVFB" ]]; then
 	"$BIN" "$@"
 else
 	SIZE="${GFXTEST_SIZE:-1280x960}"
-	xvfb-run -a -s "-screen 0 ${SIZE}x24" "$BIN" "$@"
+	env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 xvfb-run -a -s "-screen 0 ${SIZE}x24" "$BIN" "$@"
 fi
