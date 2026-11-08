@@ -81,6 +81,7 @@ typedef struct
 	float wetness;            /* Road wetness: 0 = dry (blurry sheen), 1 = soaked (mirror-like), < 0 = automatic (wet while it rains) */
 	float sunShafts;          /* Light shafts from bright sky areas (0 = off) */
 	float haze;               /* Distance haze tinted by the sky (0 = off) */
+	float shadows;            /* Screen-space sun shadows strength (0 = off) */
 	float focalLength;        /* Game projection focal length in 640x480 pixels (used by SSAO) */
 	BOOL widescreen;          /* Hor+ widescreen: wider field of view on wide windows */
 	BOOL carModels;           /* Replacement car models from "<settings>/models/<car>/model.cmdl" */

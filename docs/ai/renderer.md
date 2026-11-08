@@ -40,7 +40,12 @@ expansion, white = 4) and compress back. Debug views: `Alt+M` cycles 0 off, 1 wo
 3 depth, 4 bloom, 5 reflections, 6 sun shafts. `Alt+P` toggles effects, `Alt+S` screenshot. `Alt+D` frame capture
 (`captureTriangle` in OpenGL2.c): one line per game triangle (outcome: world / overlay / backdrop / terrain-hidden /
 backdrop-replaced, texture hash, alpha mode, blend, depth mask, clip window, vertices x y oow alpha) plus the textures
-used, as uploaded (HD if replaced). Debug view 7 shows the headlight light alone.
+used, as uploaded (HD if replaced). Debug view 7 shows the headlight light alone, 8 the sun shadows.
+Sun shadows (`Shadows`, composite shader): 24 jittered steps from the pixel towards the sun (`skySunCamera()` in
+Sky.c: the sky file's sun, only for skies with `auto_yaw=1`) through the depth buffer, up to 8 m; an occluder is a
+world pixel (mask) between 0.12 m + ... and 1.5 m + 3% behind the ray, at least 1.5 m from the camera, outside the
+mirror rectangle (samples on HUD pixels and in the mirror gave false bands). Surfaces facing away from the sun get
+0.4. Faded out at 60-120 m.
 Headlights (`carHeadlights` in CarModels.c, composite shader in PostFX.c): the player car is the car body nearest
 the camera, in front of it and facing the same way (any car, replaced or not; collected in `carPartHook`,
 latched per frame in `grBufferSwap`); without one (bumper view) the lamps sit below the camera. Two low-beam spots

@@ -43,6 +43,10 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Night darkening of the scenery with lights kept (`night_ambient`, Proving Grounds 0.30)
 - [ ] Owner check on the real GPU; headlights of other cars, rain spray
 
+## 1d. Shadows `[~]`
+- [x] Screen-space sun shadows (cars, walls, fences, trees on the road), `Shadows` setting, sunny skies only
+- [ ] Owner check; shadows of off-screen occluders (would need a shadow map of the game's geometry)
+
 ## 2. Car polish `[ ]`
 - [x] Reflections of the scene in car paint and glass (dynamic environment map accumulated from the screen)
 - [x] Draw cars before translucent effects (opaque parts right after the sky, glass at the end)

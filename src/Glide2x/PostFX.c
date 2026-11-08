@@ -645,6 +645,8 @@ static const char g_postCompositeSrc[] =
 	"uniform float uReflections;\n"
 	"uniform float uShaftStrength;\n"
 	"uniform float uHaze;\n"
+	"uniform float uShadow;\n" /* Screen-space sun shadows: strength, direction towards the sun (camera space) */
+	"uniform vec3 uSunCam;\n"
 	"uniform float uNightAmbient;\n" /* Night: scenery darkened to this, bright lights stay */
 	"uniform float uHlStrength;\n" /* Headlights: strength, lamp positions and beam basis (camera space) */
 	"uniform vec3 uHlPos[2];\n"
@@ -705,6 +707,41 @@ static const char g_postCompositeSrc[] =
 	 * the surface's own colour (the game's night lighting darkened it: the light brings the texture back)
 	 */
 	"	setView(vUV);\n"
+	/*
+	 * Sun shadows: march from the pixel towards the sun through the depth buffer; a sample behind nearby geometry
+	 * (within a thickness) means an occluder on screen (cars, walls, trees). Faded out with distance.
+	 */
+	"	if (uShadow > 0.0 && depth < 0.999999 && mask > 0.5 && !gSub)\n"
+	"	{\n"
+	"		float w0 = linearDepth(depth);\n"
+	"		vec3 P = viewPos(vUV, w0);\n"
+	"		vec3 Ns = normalize(cross(dFdx(P), dFdy(P)));\n"
+	"		if (dot(Ns, P) > 0.0) Ns = -Ns;\n"
+	"		float occl = 0.0;\n"
+	"		if (dot(Ns, uSunCam) > 0.05)\n"
+	"		{\n"
+	"			vec3 start = P + Ns * (0.05 + 0.004 * w0);\n"
+	"			float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));\n"
+	"			for (int i = 1; i <= 24; ++i)\n"
+	"			{\n"
+	"				float t = 0.05 + 8.0 * pow((float(i) - jitter) / 24.0, 1.6);\n"
+	"				vec3 Q = start + uSunCam * t;\n"
+	"				if (Q.z < 0.3) break;\n"
+	"				vec2 uv = gR.xy + (Q.xy / (Q.z * gP) * 0.5 + 0.5) * (gR.zw - gR.xy);\n"
+	"				if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || inSub(uv)) break;\n"
+	"				float d = texture2D(uDepth, uv).r;\n"
+	"				if (d >= 0.999999 || texture2D(uMask, uv).r < 0.5) continue;\n"
+	"				float ws = linearDepth(d);\n"
+	"				if (ws < 1.5) continue;\n"
+	"				float behind = Q.z - ws;\n"
+	"				if (behind > 0.12 + 0.01 * Q.z + 0.15 * t && behind < 1.5 + 0.03 * Q.z) { occl = 1.0; break; }\n"
+	"			}\n"
+	"		}\n"
+	"		else occl = 0.4;\n" /* Facing away from the sun: the game's own shading mostly covers it, a little more */
+	"		occl *= 1.0 - smoothstep(60.0, 120.0, w0);\n"
+	"		if (uDebug == 8) { gl_FragColor = vec4(vec3(1.0 - occl), 1.0); return; }\n"
+	"		hdr *= 1.0 - uShadow * 0.7 * occl;\n"
+	"	}\n"
 	"	vec3 albedo = hdr, headlight = vec3(0.0);\n"
 	"	if (uHlStrength > 0.0 && depth < 0.999999 && !gSub)\n"
 	"	{\n"
@@ -1325,6 +1362,8 @@ static BOOL skyMainPanorama(int32_t unit, float camToWorld[16], float *yawRadian
 static BOOL skyMainCamera(float camToWorld[16]);
 /* CarModels.c: the player's headlights in camera space (two lamps, beam basis); returns the strength, 0 - off */
 static float carHeadlights(float pos[6], float basis[9], float *nightAmbient);
+/* Sky.c: direction towards the sun in camera space; returns the strength, 0 - no sun */
+static float skySunCamera(float dir[3]);
 
 static void postViewUniforms(GLuint prog, float projX, float projY)
 {
@@ -1579,6 +1618,12 @@ static void postEffects()
 			glUniformMatrix3fv(glGetUniformLocation(g_post.compositeProg, "uHlBasis"), 1, GL_FALSE, hlBasis);
 		}
 	}
+	{
+		float sun[3] = {0.0f, 1.0f, 0.0f};
+		const float s = gfx.shadows > 0.0f ? skySunCamera(sun) * gfx.shadows : 0.0f;
+		postUniform1f(g_post.compositeProg, "uShadow", s);
+		glUniform3f(glGetUniformLocation(g_post.compositeProg, "uSunCam"), sun[0], sun[1], sun[2]);
+	}
 	postUniform2f(g_post.compositeProg, "uAOTexel", 1.0f / g_post.aoA.w, 1.0f / g_post.aoA.h);
 	postUniform2f(g_post.compositeProg, "uAOSize", g_post.aoA.w, g_post.aoA.h);
 	postUniform1f(g_post.compositeProg, "uAOStrength", ao ? gfx.aoStrength : 0.0f);
@@ -1684,9 +1729,9 @@ static void postPresent(int32_t vx, int32_t vy, int32_t vw, int32_t vh, int32_t 
 	}
 	if (gfxDebugViewRequest >= 0)
 	{
-		static const char *names[] = {"off", "world mask", "ambient occlusion", "depth", "bloom", "reflections", "sun shafts", "headlights"};
+		static const char *names[] = {"off", "world mask", "ambient occlusion", "depth", "bloom", "reflections", "sun shafts", "headlights", "shadows"};
 		gfxDebugViewRequest = -1;
-		g_post.debugView = (g_post.debugView + 1) % 8;
+		g_post.debugView = (g_post.debugView + 1) % 9;
 		fprintf(stderr, "Debug view: %s\n", names[g_post.debugView]);
 	}
 

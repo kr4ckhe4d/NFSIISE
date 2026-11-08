@@ -306,6 +306,26 @@ static BOOL skyIblBind(int32_t unit, float camToWorld[16], float *yawRadians, fl
 	return true;
 }
 
+/*
+ * Direction towards the sun in the camera space of this frame's main view; returns its strength (0 - no sun: no sky,
+ * overcast sky or the sun below the horizon).
+ */
+static float skySunCamera(float dir[3])
+{
+	float az, el, w[3];
+	int32_t c;
+	if (!gfx.skies || !g_sky.ibl[0] || g_sky.track != gfxCurrentTrack || !g_sky.autoYaw || g_sky.sunElevation <= 0.5f)
+		return 0.0f;
+	az = (g_sky.sunAzimuth - g_sky.yaw) * (float)M_PI / 180.0f;
+	el = g_sky.sunElevation * (float)M_PI / 180.0f;
+	w[0] = SDL_sinf(az) * SDL_cosf(el);
+	w[1] = SDL_sinf(el);
+	w[2] = SDL_cosf(az) * SDL_cosf(el);
+	for (c = 0; c < 3; ++c)
+		dir[c] = g_skyView.camToWorld[c * 4 + 0] * w[0] + g_skyView.camToWorld[c * 4 + 1] * w[1] + g_skyView.camToWorld[c * 4 + 2] * w[2];
+	return 1.0f;
+}
+
 /* Loads "<settings>/skies/trNN.txt" and its image for the track */
 static void skyLoad(int32_t track)
 {
