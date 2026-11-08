@@ -144,7 +144,8 @@ REALIGN STDCALL BOOL GetMessageA_wrap(MSG *msg, void *hWnd, uint32_t wMsgFilterM
 #ifndef OPENGL1X
 					if (event.key.keysym.mod & KMOD_LALT)
 					{
-						/* Graphics enhancement hotkeys: Alt+P - toggle effects, Alt+S - screenshot, Alt+M - debug view */
+						/* Graphics enhancement hotkeys: Alt+P - toggle effects, Alt+S - screenshot, Alt+M - debug view,
+						   Alt+D - frame capture (draw log + textures, for bug reports) */
 						SDL_Keycode hotkey = event.key.keysym.sym;
 						if (!event.key.repeat)
 						{
@@ -154,6 +155,8 @@ REALIGN STDCALL BOOL GetMessageA_wrap(MSG *msg, void *hWnd, uint32_t wMsgFilterM
 								gfxScreenshotRequest = true;
 							else if (hotkey == SDLK_m)
 								gfxDebugViewRequest = 1;
+							else if (hotkey == SDLK_d)
+								gfxCaptureRequest = true;
 						}
 					}
 #endif
@@ -164,7 +167,7 @@ REALIGN STDCALL BOOL GetMessageA_wrap(MSG *msg, void *hWnd, uint32_t wMsgFilterM
 					SDL_Keycode sym = event.key.keysym.sym;
 
 #ifndef OPENGL1X
-					if ((event.key.keysym.mod & KMOD_LALT) && (sym == SDLK_p || sym == SDLK_s || sym == SDLK_m))
+					if ((event.key.keysym.mod & KMOD_LALT) && (sym == SDLK_p || sym == SDLK_s || sym == SDLK_m || sym == SDLK_d))
 					{
 						/* Don't pass graphics hotkeys to the game */
 						br = false;

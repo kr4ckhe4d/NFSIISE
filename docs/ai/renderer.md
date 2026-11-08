@@ -37,7 +37,11 @@ View-space reconstruction: `viewPos(uv, w) = ((uv*2-1) * uProj * w, w)` with `uP
 
 HDR convention: the scene is LDR gamma-encoded; passes use `expandHDR(toLinear(c), white)` (invertible highlight
 expansion, white = 4) and compress back. Debug views: `Alt+M` cycles 0 off, 1 world mask, 2 ambient occlusion,
-3 depth, 4 bloom, 5 reflections, 6 sun shafts. `Alt+P` toggles effects, `Alt+S` screenshot.
+3 depth, 4 bloom, 5 reflections, 6 sun shafts. `Alt+P` toggles effects, `Alt+S` screenshot. `Alt+D` frame capture
+(`captureTriangle` in OpenGL2.c): one line per game triangle (outcome: world / overlay / backdrop / terrain-hidden /
+backdrop-replaced, texture hash, alpha mode, blend, depth mask, clip window, vertices x y oow alpha) plus the textures
+used, as uploaded (HD if replaced). Ask the owner to press it when something looks wrong in a scene that is hard to
+reach headless.
 
 ## Settings (GfxSettings in Wrapper.h, parsed in Wrapper.c)
 `RenderScale, MSAA, AnisotropicFiltering, Mipmaps, PerPixelFog, TextureReplace, TextureDump, PostProcessing,

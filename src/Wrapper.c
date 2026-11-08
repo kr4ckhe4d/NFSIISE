@@ -81,6 +81,7 @@ GfxSettings gfx = {
 float widescreenScale = 1.0f;
 volatile BOOL gfxPostToggleRequest = false;
 volatile BOOL gfxScreenshotRequest = false;
+volatile BOOL gfxCaptureRequest = false;
 volatile int32_t gfxDebugViewRequest = -1;
 
 #ifndef WIN32

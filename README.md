@@ -227,7 +227,8 @@ Current limitations: the rear-view mirror is untested.
 
 * `Alt+P` - toggle the effects (compare with the original look),
 * `Alt+S` - save a screenshot into `~/.nfs2se/screenshots`,
-* `Alt+M` - cycle debug views: world mask, ambient occlusion, depth, bloom, reflections, sun shafts.
+* `Alt+M` - cycle debug views: world mask, ambient occlusion, depth, bloom, reflections, sun shafts,
+* `Alt+D` - frame capture for bug reports: the next frame's draw calls and textures go to `~/.nfs2se/screenshots/capture-<time>.txt` and `capture-<time>/`.
 
 ### Notes
 
@@ -265,7 +266,7 @@ Current limitations: the rear-view mirror is untested.
 * F11 - reset car (player 1)
 * F12 - reset car (player 2)
 
-Graphics hotkeys (OpenGL 2): `Alt+P` - toggle effects, `Alt+S` - screenshot, `Alt+M` - debug views.
+Graphics hotkeys (OpenGL 2): `Alt+P` - toggle effects, `Alt+S` - screenshot, `Alt+M` - debug views, `Alt+D` - frame capture.
 
 ## Additional information:
 

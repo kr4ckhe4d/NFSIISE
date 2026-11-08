@@ -93,6 +93,7 @@ extern int32_t gfxCurrentTrack; /* Current track number, -1 if unknown */
 /* Runtime toggles, set from the event thread and consumed by the renderer */
 extern volatile BOOL gfxPostToggleRequest;
 extern volatile BOOL gfxScreenshotRequest;
+extern volatile BOOL gfxCaptureRequest;
 extern volatile int32_t gfxDebugViewRequest;
 
 #endif // WRAPPER_H

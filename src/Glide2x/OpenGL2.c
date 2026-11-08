@@ -1017,6 +1017,94 @@ static inline void fogTableChanged()
 }
 
 /* Optional statistics of submitted geometry (NFS2SE_GFX_STATS=1), used to tune the classification */
+/*
+ * Frame capture (Alt+D, for bug reports): the next frame's triangles as the game sends them (texture hash, render
+ * state, clip window, vertices) go to "<settings>/screenshots/capture-<time>.txt", with every texture used, as the
+ * renderer sees it (HD replacement if any), in "capture-<time>/<hash>.png".
+ */
+static FILE *g_capFile;
+static int32_t g_capState; /* 0 - idle, 1 - starts with the next frame, 2 - capturing */
+static char g_capDir[1024];
+static struct { uint64_t hash; GLuint id; } g_capTex[1024];
+static int32_t g_capTexCount;
+static uint32_t g_capTriangles;
+
+static void captureFrameStart()
+{
+	extern float dword_4D5294, flt_4D5298, flt_4D529C, flt_4D52A0;
+	const char *dir = getSettingsDir();
+	char stamp[32], path[1100];
+	time_t now = time(NULL);
+	strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", localtime(&now));
+	snprintf(g_capDir, sizeof g_capDir, "%sscreenshots/capture-%s", dir ? dir : "./", stamp);
+	snprintf(path, sizeof path, "%s.txt", g_capDir);
+	g_capFile = fopen(path, "w");
+	g_capTexCount = 0;
+	g_capTriangles = 0;
+	g_capState = g_capFile ? 2 : 0;
+	if (g_capFile)
+		fprintf(g_capFile, "# virtualWidth=%g widescreenScale=%g track=%d proj=%g,%g,%g,%g\n# outcome tex texOn alphaMode blendDst depthMask fog clip(x0,y0,x1,y1) full seen3D | x y oow alpha (x3)\n",
+			g_virtualWidth, widescreenScale, gfxCurrentTrack, dword_4D5294, flt_4D5298, flt_4D529C, flt_4D52A0);
+}
+static void captureTriangle(const GrVertex *a, const GrVertex *b, const GrVertex *c, const char *outcome)
+{
+	const GrVertex *v[3] = {a, b, c};
+	int32_t i;
+	const BOOL textured = g_textureEnabled > 0.5f;
+	fprintf(g_capFile, "%s %016llX %d %d %s %d %d %g,%g,%g,%g %d %d |", outcome, textured ? (unsigned long long)g_boundHash : 0ULL,
+		textured, g_boundAlphaMode, g_blendFuncDFactor == GL_ONE ? "add" : g_blendFuncDFactor == GL_ZERO ? "none" : "alpha",
+		!!g_depthMask, g_fogEnabled > 0.5f, g_clipWindow[0], g_clipWindow[1], g_clipWindow[2], g_clipWindow[3], g_fullWidthView, g_seen3D);
+	for (i = 0; i < 3; ++i)
+		fprintf(g_capFile, " %.1f %.1f %.6g %.0f", v[i]->x - VertexSnap, v[i]->y - VertexSnap, v[i]->oow, v[i]->a);
+	fputc('\n', g_capFile);
+	++g_capTriangles;
+	if (textured && g_boundTexture)
+	{
+		for (i = 0; i < g_capTexCount; ++i)
+			if (g_capTex[i].hash == g_boundHash)
+				return;
+		if (g_capTexCount < (int32_t)(sizeof g_capTex / sizeof *g_capTex))
+		{
+			g_capTex[g_capTexCount].hash = g_boundHash;
+			g_capTex[g_capTexCount].id = g_boundTexture;
+			++g_capTexCount;
+		}
+	}
+}
+static void captureFrameEnd()
+{
+	int32_t i;
+	fclose(g_capFile);
+	g_capFile = NULL;
+	g_capState = 0;
+#ifndef GLES2
+#ifdef _WIN32
+	mkdir(g_capDir);
+#else
+	mkdir(g_capDir, 0755);
+#endif
+	for (i = 0; i < g_capTexCount; ++i)
+	{
+		GLint w = 0, h = 0;
+		uint8_t *pixels;
+		char path[1200];
+		glBindTexture(GL_TEXTURE_2D, g_capTex[i].id);
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
+		if (w <= 0 || h <= 0 || !(pixels = (uint8_t *)malloc(w * h * 4)))
+			continue;
+		glPixelStorei(GL_PACK_ALIGNMENT, 1);
+		glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+		glPixelStorei(GL_PACK_ALIGNMENT, 4);
+		snprintf(path, sizeof path, "%s/%016llX.png", g_capDir, (unsigned long long)g_capTex[i].hash);
+		stbi_write_png(path, w, h, 4, pixels, w * 4);
+		free(pixels);
+	}
+	glBindTexture(GL_TEXTURE_2D, g_boundTexture);
+#endif
+	fprintf(stderr, "Frame capture saved: %s.txt (%u triangles, %d textures)\n", g_capDir, g_capTriangles, g_capTexCount);
+}
+
 static int32_t g_statsEnabled = -1;
 static struct
 {
@@ -1208,6 +1296,15 @@ REALIGN STDCALL void grBufferSwap(int swap_interval)
 
 	if (g_statsEnabled > 0)
 		statsFrame();
+	if (g_capState == 2)
+		captureFrameEnd();
+	else if (g_capState == 1)
+		captureFrameStart();
+	if (gfxCaptureRequest)
+	{
+		gfxCaptureRequest = false;
+		g_capState = 1;
+	}
 
 	GLint viewportSize[4] = {};
 	glGetIntegerv(GL_VIEWPORT, viewportSize);
@@ -1402,13 +1499,23 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 		if (g_textureEnabled < 0.5f)
 			skyObserveGradient(a, b, c);
 		if (g_skyReplacing && (g_textureEnabled < 0.5f || g_boundAlphaMode == AlphaOpaque))
+		{
+			if (g_capFile)
+				captureTriangle(a, b, c, "backdrop-replaced");
 			return;
+		}
 	}
 	/* The game's stand-ins for distant terrain are hidden while the real terrain is drawn */
 	if (terrainHidesTriangle(a, b, c))
+	{
+		if (g_capFile)
+			captureTriangle(a, b, c, "terrain-hidden");
 		return;
+	}
 #endif
 	const uint8_t world = worldMask(a, b, c, &mapping);
+	if (g_capFile)
+		captureTriangle(a, b, c, mapping == MapWorld ? (world ? "world" : "world-nomask") : mapping == MapBackdrop ? "backdrop" : "overlay");
 #ifdef GL2_ENHANCED
 	if (world && g_blendFuncDFactor == GL_ONE && a->oow == b->oow && b->oow == c->oow && a->oow < 0.999f)
 		++g_frameRainTriangles;

@@ -38,6 +38,7 @@ float dword_4D5294 = 320.0f, flt_4D5298 = -320.0f, flt_4D529C = 320.0f, flt_4D52
 int32_t gfxCurrentTrack = -1;
 volatile BOOL gfxPostToggleRequest = false;
 volatile BOOL gfxScreenshotRequest = false;
+volatile BOOL gfxCaptureRequest = false;
 volatile int32_t gfxDebugViewRequest = -1;
 static char g_settingsDir[512] = "";
 const char *getSettingsDir(void)
