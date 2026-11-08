@@ -38,19 +38,6 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [ ] Owner check of each track on the real GPU (place, rotation, colours)
 - [ ] Index the mesh (smaller files), better surface colours
 
-## 1c. Night `[~]`
-- [x] Headlights of the player car lighting the road and scenery (low beam, sky file `headlights`)
-- [x] Night darkening of the scenery with lights kept (`night_ambient`, Proving Grounds 0.30)
-- [ ] Owner check on the real GPU; headlights of other cars, rain spray
-
-## 1d. Shadows `[~]`
-- [x] Screen-space sun shadows (cars, walls, fences, trees on the road), `Shadows` setting, sunny skies only
-- [ ] Owner check; shadows of off-screen occluders (would need a shadow map of the game's geometry)
-
-## 1e. Speed effects `[~]`
-- [x] Camera motion blur of the scenery (`MotionBlur`), cars stay sharp
-- [ ] Owner check of the strength at 165 Hz; camera shake / FOV kick (would touch game camera logic)
-
 ## 1f. Per-track sky tuning `[~]`
 - [x] Hide the game's additive cloud layer under the panorama (`hide`; city sky was white), haze limited to 2x the
       average sky towards a low sun, per-track `exposure`
@@ -63,18 +50,21 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [ ] Normal, roughness and metallic textures from glTF (CarConcept has none; do it with the first model that needs them)
 - [ ] Models for the other cars (needs sourcing; only the McLaren F1 has one)
 
-## 3. Night and weather `[ ]`
-- [ ] Headlights that light the road and scenery on night tracks, lens flares
+## 3. Night and weather `[~]`
+- [x] Headlights of the player car lighting the road and scenery (low beam, sky file `headlights`) - 222651c
+- [x] Night darkening of the scenery with lights kept (`night_ambient`, Proving Grounds 0.30) - 222651c
+- [ ] Owner check on the real GPU; headlights of other cars, lens flares
 - [ ] Spray behind cars on wet roads
 - [ ] Raindrops on the camera in the rain
 
-## 4. Shadows `[ ]`
-- [ ] Screen-space sun shadows from the scene depth
+## 4. Shadows `[~]`
+- [x] Screen-space sun shadows from the scene depth (cars, walls, fences, trees), `Shadows`, sunny skies - bdb4edc
+- [ ] Owner check; shadows of off-screen occluders (would need a shadow map of the game's geometry)
 - [ ] Shadows of the car models (replacing the game's flat shadow quad)
 
-## 5. Speed effects `[ ]`
-- [ ] Motion blur by car speed (also hides wagon-wheel aliasing of fast wheels)
-- [ ] Subtle depth of field
+## 5. Speed effects `[~]`
+- [x] Camera motion blur of the scenery (`MotionBlur`, frame-rate independent), cars stay sharp - 10884c5
+- [ ] Owner check of the strength at 165 Hz; wheel motion blur; camera shake / FOV kick; subtle depth of field
 
 ## 6. Trees and landscape `[ ]`
 - [ ] Find how track objects are drawn; hook them like the cars
