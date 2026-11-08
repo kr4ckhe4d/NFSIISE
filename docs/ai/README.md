@@ -26,14 +26,19 @@ Progress is tracked in [ROADMAP.md](../../ROADMAP.md) at the repository root; up
 
 ```
 src/Asm/NFS2SE.asm            game code (vendored, ~240k lines of x86 asm, yasm syntax) with widescreen + car model hooks
-src/Glide2x/OpenGL2.c         Glide -> OpenGL 2 renderer (includes Textures.c, PostFX.c, CarModels.c)
+src/Glide2x/OpenGL2.c         Glide -> OpenGL 2 renderer (includes Textures.c, PostFX.c, Sky.c, CarModels.c, Terrain.c),
+                              Alt+D frame capture
 src/Glide2x/Textures.c        texture conversion, hashing, dump/replace, mipmaps
-src/Glide2x/PostFX.c          post-processing (SSAO, SSR, bloom, sun shafts, haze, tone mapping, FXAA, ...)
-src/Glide2x/CarModels.c       replacement car models (loader, fitting, wheel animation, PBR shader)
-src/Glide2x/Sky.c             sky panoramas (track sky files, sun alignment, drawing after the game's backdrop)
+src/Glide2x/PostFX.c          post-processing (SSAO, SSR, bloom, sun shafts, haze, sun shadows, motion blur, headlights,
+                              night darkening, tone mapping, FXAA, ...)
+src/Glide2x/CarModels.c       replacement car models (loader, fitting, wheel animation, PBR shader), player car headlights
+src/Glide2x/Sky.c             sky panoramas (track sky files, sun alignment, drawing after the game's backdrop), IBL,
+                              sun direction and camera motion for the post-processing
+src/Glide2x/Terrain.c         distant terrain from real elevation data
 src/Wrapper.c / Wrapper.h     config parsing (GfxSettings gfx), window, hotkeys
 tools/car-models/             Blender converter glTF -> .cmdl, CarConcept installer
 tools/skies/                  Blender converter HDR panorama -> game sky, Poly Haven sky set installer
+tools/terrain/                Blender terrain generator (AWS Terrain Tiles), per-track places installer
 tools/hd-textures/upscale.sh  Real-ESRGAN texture pack builder
 tools/formats/nfs2geo.py      VIV/GEO reader/writer/exporter
 tools/gametest/               headless race automation, EGL GPU-selection shim
@@ -63,14 +68,12 @@ in Wrapper.c, and documentation in the template and README.
 - The owner's machine: AMD RX 9070 XT (+ R9700, + iGPU), 5120x2160 monitor, CachyOS. No DLSS; Vulkan exists but the
   renderer is OpenGL (Zink works via `MESA_LOADER_DRIVER_OVERRIDE=zink`).
 
-## Status (2026-11)
+## Status (2026-11-08)
 
 Done: post-processing suite, Hor+ widescreen, HD texture pipeline, SSR road reflections with automatic rain wetness,
-sun shafts, haze, mirror-correct SSR/SSAO, replacement car models with spinning/steering wheels.
+sun shafts, haze, replacement car models (wheels, IBL, scene reflections), sky panoramas with sky fog, real terrain on
+all tracks, headlights and night darkening, screen-space sun shadows, camera motion blur, Alt+D frame capture.
+Details, open items and what the owner still has to check: [HANDOVER.md](HANDOVER.md) and
+[ROADMAP.md](../../ROADMAP.md).
 
-Open ideas, roughly by value:
-- Car models: verify the rear-view mirror; draw before translucent polygons (rain/smoke are hidden behind the model);
-  models for the other cars (only `mcf1` has one); car reflections (SSR currently only on ground); motion blur on wheels.
-- Trees/scenery: the same hook approach could replace track objects; tracks are in `gamedata/tracks/se/tr*.trk`
-  (format not reverse engineered yet).
-- Known pre-existing bug (upstream too): in-race pause menu "quit to system" doesn't exit.
+Known pre-existing bug (upstream too): in-race pause menu "quit to system" doesn't exit.

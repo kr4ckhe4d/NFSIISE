@@ -197,15 +197,19 @@ The game's low resolution sky can be replaced with high resolution panoramas (8K
 
 ![Original and panorama sky on Outback, beach and Proving Grounds](screenshots/readme/skies.jpg)
 
-`tools/skies/install-skies.sh` downloads a matching set of public domain (CC0) skies from [Poly Haven](https://polyhaven.com/hdris) for every track and converts them with Blender into `~/.nfs2se/skies/trNN.jpg` + `trNN.txt`. Any equirectangular HDR can be used: `blender -b --python tools/skies/make_sky.py -- sky.hdr ~/.nfs2se/skies/tr02 --brightness 0.2` (see the script for options; `trNN.txt` can be edited afterwards). `Skies=0` disables them.
+`tools/skies/install-skies.sh` downloads a matching set of public domain (CC0) skies from [Poly Haven](https://polyhaven.com/hdris) for every track and converts them with Blender into `~/.nfs2se/skies/trNN.jpg` + `trNN.txt`. Any equirectangular HDR can be used: `blender -b --python tools/skies/make_sky.py -- sky.hdr ~/.nfs2se/skies/tr02 --brightness 0.2` (see the script for options; `trNN.txt` can be edited afterwards). `Skies=0` disables them. Sky file keys besides the panorama setup: `hide=` (the game's own cloud layer, which would whiten the panorama), `exposure=`, `headlights=`, `night_ambient=` (see `docs/ai/skies.md`).
 
-### Distant terrain (experimental)
+### Distant terrain
 
-The game shows distant landscape as flat cut-outs (a ring of pictures around the camera and a few large cards). With real terrain installed they are hidden and a real 3D landscape is drawn instead, built from public elevation data of a real place that matches the track: Outback gets the area around Uluru and Kata Tjuta (the game's own backdrop shows Uluru). The track's geometry gets lighter fog and dissolves into the terrain at its draw distance.
+The game shows distant landscape as flat cut-outs (a ring of pictures around the camera and a few large cards). With real terrain installed they are hidden and a real 3D landscape is drawn instead, built from public elevation data of a real place that matches the track: Outback gets the area around Uluru and Kata Tjuta (the game's own backdrop shows Uluru), Proving Grounds the Eifel hills at the Nürburgring, the city Vancouver, the beach Honolulu, the pine forest track Banff in the Canadian Rockies, the Greek temple Cape Sounion and the market Namche Bazaar below Everest. It is coloured by climate (desert, temperate, alpine with snow above the real snow line, Mediterranean), real sea level becomes sea, and coastal tracks are turned so the real sea lies on the side of the game's own water. The track's geometry gets lighter fog and dissolves into the terrain at its draw distance.
 
 ![Before: flat cut-outs; after: real terrain with Kata Tjuta on the horizon](screenshots/readme/terrain.jpg)
 
-`tools/terrain/install-terrain.sh` builds it with Blender from AWS Terrain Tiles (open elevation data) into `~/.nfs2se/terrain/trNN/` (currently Outback only). `Terrain=0` disables it.
+`tools/terrain/install-terrain.sh` builds it with Blender from AWS Terrain Tiles (open elevation data) into `~/.nfs2se/terrain/trNN/` for all tracks. `Terrain=0` disables it.
+
+### Night
+
+On night and dusk tracks (sky file keys, set by `tools/skies/install-skies.sh`) the player's car has low-beam headlights that light the road and the scenery ahead (`headlights=`), and the scenery is darkened to match the night sky while lamps and lit windows stay bright (`night_ambient=`). Proving Grounds uses both, the rainy city a weaker headlight.
 
 ### Car models (experimental)
 
@@ -229,7 +233,7 @@ Current limitations: the rear-view mirror is untested.
 
 * `Alt+P` - toggle the effects (compare with the original look),
 * `Alt+S` - save a screenshot into `~/.nfs2se/screenshots`,
-* `Alt+M` - cycle debug views: world mask, ambient occlusion, depth, bloom, reflections, sun shafts,
+* `Alt+M` - cycle debug views: world mask, ambient occlusion, depth, bloom, reflections, sun shafts, headlights, shadows,
 * `Alt+D` - frame capture for bug reports: the next frame's draw calls and textures go to `~/.nfs2se/screenshots/capture-<time>.txt` and `capture-<time>/`.
 
 ### Notes

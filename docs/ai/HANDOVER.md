@@ -1,19 +1,21 @@
 # Handover (2026-11-08)
 
-State at the end of the first long session. Read `CLAUDE.md`, then `ROADMAP.md`, then the topic docs in this folder.
+State after the second session (terrain on all tracks, night, shadows, motion blur, sky layers). Read `CLAUDE.md`, then `ROADMAP.md`, then the topic docs in this folder.
 
 ## Where things stand
-- Everything is committed and pushed to `fork/master` (https://github.com/kr4ckhe4d/NFSIISE). Last feature commit:
-  `4b9cffb` (distant terrain, Outback prototype).
+- Everything is committed and pushed to `fork/master` (https://github.com/kr4ckhe4d/NFSIISE); see `git log` and
+  ROADMAP.md for the commits.
 - The game is built (`Need For Speed II SE/nfs2se`) and all assets are installed for the owner:
   - HD textures: `Need For Speed II SE/textures/` (4923, Real-ESRGAN x4plus)
   - Car model: `~/.nfs2se/models/mcf1/` (Khronos CarConcept, CC BY 4.0, cmdl v2 with wheel groups)
-  - Skies: `~/.nfs2se/skies/trNN.jpg/.txt` for tr00, 02, 03, 04, 05, 06, 07 (Poly Haven CC0)
-  - Terrain: `~/.nfs2se/terrain/tr02/` (Outback, AWS Terrain Tiles)
-  - `~/.nfs2se/nfs2se.conf` has no new keys (all new features default on).
+  - Skies: `~/.nfs2se/skies/trNN.jpg/.txt` for tr00, 02, 03, 04, 05, 06, 07 (Poly Haven CC0), with the keys
+    `hide`, `headlights`, `night_ambient` appended by hand (same result as rerunning install-skies.sh)
+  - Terrain: `~/.nfs2se/terrain/trNN/` for all seven tracks (AWS Terrain Tiles)
+  - `~/.nfs2se/nfs2se.conf` has no new keys (all new features default on: `Shadows=0.5`, `MotionBlur=0.5`).
+  - The owner's monitor is now 5120x1440 (32:9).
   To rebuild assets: `tools/car-models/install-carconcept.sh`, `tools/skies/install-skies.sh`,
   `tools/terrain/install-terrain.sh` (all need Blender; it is installed, run headless).
-- Scratch files of the old session (`/tmp/claude-1000/...`) are gone; nothing in them is needed.
+- Scratch files (`/tmp/claude-1000/...`) are not needed.
 
 ## Waiting on the owner
 - **Feedback on Outback** after the terrain/fog changes (sky colour, distant mountains, the dissolve at ~400-490 m,

@@ -21,8 +21,10 @@ make_terrain.py: grid 512x512 over +-22 km around the track centre (track boundi
 lat/lon; world +Z = north, +X = east, `--rotation` turns it). Height = the lowest road height within ~1 km (spread outwards, smoothed
 without rising) - 6 m near the track (another -20 m within 250 m), blending to the real relief (DEM - median elevation near the
 centre) from 400 to 2500 m; cells within 60 m of the road are dropped. (A blurred average of the road heights was
-wrong: in Outback's canyon the road dips to -96 m and the ground stood up to 65 m above it, a brown ceiling.) Colours: red sand / scrub / rock by slope and
-noise (no imagery). Output in the car model format (world metres, X written mirrored because the loader mirrors).
+wrong: in Outback's canyon the road dips to -96 m and the ground stood up to 65 m above it, a brown ceiling.) Colours by `--palette` (desert, temperate,
+alpine, mediterranean: ground, noise patches, speckle, rock on slopes), snow above `--snowline` (real metres above sea
+level), DEM at or below sea level becomes flat dark sea with a light shore; no imagery. `--exaggerate` scales the
+relief. Output in the car model format (world metres, X written mirrored because the loader mirrors).
 Outback: centre -25.3444, 130.9276 (11 km west of Uluru, ~20 km east-southeast of Kata Tjuta) - the game's own ring
 shows Uluru in the same direction (east, measured from its ring tiles: world azimuth of tiles 0..6 = -51..56 deg).
 
@@ -69,5 +71,5 @@ compare their centroid with the track centre and set `--rotation` so the real se
 ## Open issues
 - Outback's surroundings are mostly flat in reality: Uluru (east, ~2 deg high) and Kata Tjuta (west) are the
   features. A more dramatic choice of place (or `--rotation`) is a design decision.
-- Other tracks need a real place each and their stand-in textures.
+- Only Outback has been seen by the owner; the other six places/rotations/palettes are headless-checked only.
 - The dissolve is a dither pattern (visible at low resolutions); the mesh is not indexed (50 MB for Outback).
