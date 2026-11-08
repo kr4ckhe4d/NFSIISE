@@ -481,7 +481,29 @@ static const char g_carFragmentSrc[] =
 	"uniform vec3 uUp;\n"        /* World up in camera space */
 	"uniform vec3 uSun;\n"       /* Default direction towards the sun in camera space */
 	"uniform vec4 uSunProj;\n"   /* Sun probe UV -> camera space direction (X/Z, Y/Z) */
+	/* Image based lighting from the track's sky panorama (Sky.c): sharp, blurred, diffuse */
+	"uniform sampler2D uIbl0;\n"
+	"uniform sampler2D uIbl1;\n"
+	"uniform sampler2D uIbl2;\n"
+	"uniform float uHasIbl;\n"
+	"uniform mat4 uCamToWorld;\n"
+	"uniform vec2 uIblParams;\n" /* yaw (radians), elevation of the bottom row (degrees) */
+	"uniform vec4 uSunIbl;\n"    /* Direction towards the sun (camera space), strength (0 - overcast) */
+	"uniform vec3 uSunWorld;\n"
 	"vec3 toLinear(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }\n"
+	"vec3 iblDecode(vec3 c) { vec3 l = toLinear(c); return l / max(vec3(1.0) - 0.75 * l, vec3(1.0 / 64.0)); }\n"
+	"vec2 iblUV(vec3 w, out float el)\n"
+	"{\n"
+	"	el = degrees(asin(clamp(w.y, -1.0, 1.0)));\n"
+	"	return vec2(fract((atan(w.x, w.z) + uIblParams.x) / 6.2831853 + 0.5), clamp((90.0 - el) / (90.0 - uIblParams.y), 0.0, 0.999));\n"
+	"}\n"
+	/* Sky radiance in direction w, the ground (scenery, road) below the horizon */
+	"vec3 iblSky(sampler2D s, vec3 w, vec3 ground, float soft)\n"
+	"{\n"
+	"	float el;\n"
+	"	vec2 uv = iblUV(w, el);\n"
+	"	return mix(ground, iblDecode(texture2D(s, uv).rgb), smoothstep(-1.0 - soft, 1.0 + soft, el));\n"
+	"}\n"
 	"void main()\n"
 	"{\n"
 	"	vec3 N = normalize(vNrm);\n"
@@ -531,12 +553,49 @@ static const char g_carFragmentSrc[] =
 	"	float G = NoL / (NoL * (1.0 - k) + k) * NoV / (NoV * (1.0 - k) + k);\n"
 	"	vec3 spec = D * G * F / max(4.0 * NoL * NoV, 0.001);\n"
 	"	float hemi = 0.5 + 0.5 * dot(N, uUp);\n"
+	"	vec3 envSharpIbl = vec3(-1.0);\n"
 	"	vec3 ambient = hue * mix(0.2, 0.55, hemi) + skyRaw * 0.12 * hemi;\n"
+	/*
+	 * Image based lighting: reflections and diffuse light from the sky panorama, the sun where the panorama has it.
+	 * The game-exposure ambient above stays as a minimum, so cars don't go black under a night sky.
+	 */
+	"	if (uHasIbl > 0.5)\n"
+	"	{\n"
+	"		vec3 Nw = normalize((uCamToWorld * vec4(N, 0.0)).xyz);\n"
+	"		vec3 Rw = normalize((uCamToWorld * vec4(R, 0.0)).xyz);\n"
+	"		vec3 skyAvg = iblDecode(texture2D(uIbl2, vec2(0.5, 0.25)).rgb);\n"
+	"		vec3 groundIbl = skyAvg * 0.15;\n"
+	"		vec3 e0 = iblSky(uIbl0, Rw, groundIbl, 0.0);\n"
+	"		vec3 e1 = iblSky(uIbl1, Rw, groundIbl, 4.0);\n"
+	"		vec3 e2 = iblSky(uIbl2, Rw, groundIbl, 15.0);\n"
+	"		env = rough < 0.3 ? mix(e0, e1, smoothstep(0.05, 0.3, rough)) : mix(e1, e2, smoothstep(0.3, 0.7, rough));\n"
+	"		envSharpIbl = e0;\n"
+	"		vec3 irradiance = iblSky(uIbl2, Nw, groundIbl, 30.0);\n"
+	"		ambient = max(irradiance, ambient * 0.6);\n"
+	"		if (uSunIbl.w > 0.0)\n"
+	"		{\n"
+	"			L = normalize(uSunIbl.xyz);\n"
+	"			sunColor = min(iblSky(uIbl0, normalize(uSunWorld), groundIbl, 0.0), vec3(4.0)) * uSunIbl.w;\n"
+	"			H = normalize(L + V);\n"
+	"			NoL = clamp(dot(N, L), 0.0, 1.0);\n"
+	"			NoH = clamp(dot(N, H), 0.0, 1.0);\n"
+	"			d = NoH * NoH * (a * a - 1.0) + 1.0;\n"
+	"			D = a * a / (3.14159 * d * d);\n"
+	"			G = NoL / (NoL * (1.0 - k) + k) * NoV / (NoV * (1.0 - k) + k);\n"
+	"			spec = D * G * F / max(4.0 * NoL * NoV, 0.001);\n"
+	"		}\n"
+	"		else\n"
+	"		{\n"
+	"			sunColor = vec3(0.0);\n"
+	"		}\n"
+	"	}\n"
 	"	vec3 diffuse = base.rgb * (1.0 - metal);\n"
 	"	vec3 color = diffuse * (ambient + sunColor * NoL * 0.9) + spec * sunColor * NoL + env * F;\n"
 	/* Clear coat: an extra sharp reflection layer on car paint */
 	"	float Fc = 0.04 + 0.96 * pow(1.0 - NoV, 5.0);\n"
 	"	vec3 envSharp = ry < 0.0 ? mix(horizon, ground, smoothstep(0.0, 0.08, -ry)) : mix(horizon, sky, smoothstep(0.05, 0.25, ry));\n"
+	"	if (envSharpIbl.x >= 0.0)\n"
+	"		envSharp = envSharpIbl;\n"
 	"	color = mix(color, envSharp, uPbr.w * Fc);\n"
 	"	color += uEmission;\n"
 	"	float alpha = base.a;\n"
@@ -644,6 +703,26 @@ static void carModelsDraw()
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, g_post.sky.tex);
 	glActiveTexture(GL_TEXTURE0);
+	{
+		float camToWorld[16], yaw = 0.0f, elevationMin = 0.0f, sunWorld[3] = {0.0f, 1.0f, 0.0f}, sunStrength = 0.0f;
+		const BOOL ibl = skyIblBind(2, camToWorld, &yaw, &elevationMin, sunWorld, &sunStrength);
+		glUniform1f(glGetUniformLocation(g_carProg, "uHasIbl"), ibl ? 1.0f : 0.0f);
+		if (ibl)
+		{
+			/* Sun in camera space: camera = transpose(camToWorld) * world */
+			float sunCam[3];
+			int32_t c;
+			for (c = 0; c < 3; ++c)
+				sunCam[c] = camToWorld[c * 4 + 0] * sunWorld[0] + camToWorld[c * 4 + 1] * sunWorld[1] + camToWorld[c * 4 + 2] * sunWorld[2];
+			glUniform1i(glGetUniformLocation(g_carProg, "uIbl0"), 2);
+			glUniform1i(glGetUniformLocation(g_carProg, "uIbl1"), 3);
+			glUniform1i(glGetUniformLocation(g_carProg, "uIbl2"), 4);
+			glUniformMatrix4fv(glGetUniformLocation(g_carProg, "uCamToWorld"), 1, GL_FALSE, camToWorld);
+			glUniform2f(glGetUniformLocation(g_carProg, "uIblParams"), yaw, elevationMin);
+			glUniform4f(glGetUniformLocation(g_carProg, "uSunIbl"), sunCam[0], sunCam[1], sunCam[2], sunStrength);
+			glUniform3f(glGetUniformLocation(g_carProg, "uSunWorld"), sunWorld[0], sunWorld[1], sunWorld[2]);
+		}
+	}
 	glUniform1f(glGetUniformLocation(g_carProg, "uHasSky"), (g_post.ok && g_post.sky.tex && g_prevFrameHas3D) ? 1.0f : 0.0f);
 	glDepthMask(GL_TRUE);
 	glEnable(GL_DEPTH_TEST);

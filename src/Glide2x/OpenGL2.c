@@ -438,8 +438,8 @@ static void drawTriangles();
 #ifdef GL2_ENHANCED
 # include "PostFX.c"
 static void useGameProgram(BOOL gameProgram);
-# include "CarModels.c"
 # include "Sky.c"
+# include "CarModels.c"
 #endif
 
 static inline BOOL loadShaders()

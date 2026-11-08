@@ -101,6 +101,8 @@ game object (`esi` at the hook, `+0x74` position 16.16, `+0x50` matrix 16.16) is
 The vertex shader rotates wheel vertices: spin around X, then steer around Y, about the batch pivot.
 
 ### Lighting
+With a sky panorama for the track, reflections, diffuse light and the sun come from it (image-based lighting, see
+skies.md). Otherwise (and as a minimum on dark skies) the following applies.
 Physically based (Lambert + GGX sun, Schlick Fresnel, clear coat layer, glass with Fresnel alpha) but in the **game's
 exposure**: the game shows textures at roughly full brightness whatever the sky, so a physical sky-lit car is
 near-black on night tracks. Base illumination is fixed and only tinted by the sky hue from the sky probe; a bright sky

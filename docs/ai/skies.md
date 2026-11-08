@@ -47,9 +47,20 @@ For up to 10 s after the first frame on a track the panorama is not drawn; each 
 After 20 measurements (coverage > 0.002, spread < 0.25, outliers > 90 deg rejected) `yaw = sun_azimuth - measured`.
 Without a measurement the configured yaw is used. Outback measured ~87 deg, beach ~151, city ~34.
 
+## Image-based lighting (car models)
+At load, `skyBuildIbl` decodes the sky image to linear HDR and makes three smaller copies with the same encoding:
+512 wide (sharp), 128 wide blurred (sigma 2 px, ~6 deg), 32 wide blurred (sigma 2.5 px, ~30 deg, diffuse).
+`skyIblBind(unit, ...)` binds them (car shader: units 2-4) with the current view's camera->world matrix, the yaw,
+the bottom elevation and the panorama's sun direction in world space (`sun_azimuth - yaw`, `sun_elevation`); the
+sun strength is 1 for `auto_yaw=1` skies (a real sun) and 0 for overcast ones. The car shader looks up reflections
+by roughness (sharp -> blurred -> diffuse), diffuse light from the diffuse copy around the normal, the sun colour
+from the sharp copy at the sun direction; below the horizon it uses 15% of the average sky as the ground. The
+game-exposure ambient (see car-models.md) * 0.6 remains a minimum, so cars stay visible under night skies.
+
 ## Known issues / ideas
 - A thin band of the game's sky gradient remains right at the horizon where the backdrop has no terrain. Idea:
   classify backdrop pixels as sky vs terrain (colour vs the game's sky gradient above) and blend per pixel.
 - City (tr03) is very bright towards the low sun; brightness per track should be tuned on the real display.
-- Image-based lighting: use the panorama (prefiltered) for car models and SSR misses instead of the probe average.
+- SSR misses on the road could sample the panorama instead of the screen / average sky.
+- Night tracks: the minimum ambient makes cars look flat; local lights (street lamps, headlights) would help.
 - The mirror view uses the same sky file; not checked visually.

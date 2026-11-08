@@ -21,10 +21,15 @@
  * This file is included from OpenGL2.c.
  */
 
+#include <SDL2/SDL_timer.h>
+
+extern float dword_4D5294, flt_4D5298, flt_4D529C, flt_4D52A0; /* Game projection: scale X, scale Y, center X, center Y */
+
 typedef struct
 {
 	int32_t track;          /* Track the sky belongs to, -2 = none loaded yet */
 	GLuint tex;
+	GLuint ibl[3];          /* Image based lighting: sharp (512 wide), blurred (128), diffuse (32), same encoding */
 	float elevationMin;     /* Degrees */
 	float yaw, sunAzimuth, sunElevation, blend[2];
 	BOOL autoYaw;
@@ -120,7 +125,174 @@ static void skyUnload()
 {
 	if (g_sky.tex)
 		glDeleteTextures(1, &g_sky.tex);
+	if (g_sky.ibl[0])
+		glDeleteTextures(3, g_sky.ibl);
 	g_sky.tex = 0;
+	memset(g_sky.ibl, 0, sizeof g_sky.ibl);
+}
+
+/*
+ * Image based lighting. The sky image is encoded like the post-processing's HDR scene (c / (1 + 0.75 c), gamma 2.2):
+ * smaller, blurred copies are made in linear HDR and stored with the same encoding.
+ */
+static inline float skyDecode(float v)
+{
+	const float lin = SDL_pow(v, 2.2f);
+	return lin / SDL_max(1.0f - 0.75f * lin, 1.0f / 64.0f);
+}
+static inline uint8_t skyEncode(float hdr)
+{
+	const float c = hdr / (1.0f + 0.75f * hdr);
+	return (uint8_t)(SDL_pow(SDL_min(SDL_max(c, 0.0f), 1.0f), 1.0f / 2.2f) * 255.0f + 0.5f);
+}
+
+/* Area average of a float RGB image (dst smaller than src) */
+static void skyDownsample(const float *src, int32_t sw, int32_t sh, float *dst, int32_t dw, int32_t dh)
+{
+	int32_t x, y, sx, sy, c;
+	for (y = 0; y < dh; ++y)
+	{
+		const int32_t y0 = y * sh / dh, y1 = SDL_max((y + 1) * sh / dh, y0 + 1);
+		for (x = 0; x < dw; ++x)
+		{
+			const int32_t x0 = x * sw / dw, x1 = SDL_max((x + 1) * sw / dw, x0 + 1);
+			float sum[3] = {0.0f, 0.0f, 0.0f};
+			for (sy = y0; sy < y1; ++sy)
+				for (sx = x0; sx < x1; ++sx)
+					for (c = 0; c < 3; ++c)
+						sum[c] += src[(sy * sw + sx) * 3 + c];
+			for (c = 0; c < 3; ++c)
+				dst[(y * dw + x) * 3 + c] = sum[c] / ((y1 - y0) * (x1 - x0));
+		}
+	}
+}
+
+/* Separable Gaussian blur, wrapping horizontally (azimuth), clamped vertically */
+static void skyBlur(float *img, int32_t w, int32_t h, float sigma)
+{
+	const int32_t r = (int32_t)(sigma * 3.0f + 0.5f);
+	float *tmp = (float *)malloc(sizeof(float) * 3 * w * h), *k = (float *)malloc(sizeof(float) * (2 * r + 1));
+	float ksum = 0.0f;
+	int32_t x, y, i, c;
+	if (!tmp || !k)
+	{
+		free(tmp);
+		free(k);
+		return;
+	}
+	for (i = -r; i <= r; ++i)
+		ksum += k[i + r] = SDL_exp(-(float)(i * i) / (2.0f * sigma * sigma));
+	for (y = 0; y < h; ++y)
+		for (x = 0; x < w; ++x)
+			for (c = 0; c < 3; ++c)
+			{
+				float sum = 0.0f;
+				for (i = -r; i <= r; ++i)
+					sum += k[i + r] * img[(y * w + ((x + i) % w + w) % w) * 3 + c];
+				tmp[(y * w + x) * 3 + c] = sum / ksum;
+			}
+	for (y = 0; y < h; ++y)
+		for (x = 0; x < w; ++x)
+			for (c = 0; c < 3; ++c)
+			{
+				float sum = 0.0f;
+				for (i = -r; i <= r; ++i)
+					sum += k[i + r] * tmp[(SDL_min(SDL_max(y + i, 0), h - 1) * w + x) * 3 + c];
+				img[(y * w + x) * 3 + c] = sum / ksum;
+			}
+	free(tmp);
+	free(k);
+}
+
+static GLuint skyUploadHdr(const float *img, int32_t w, int32_t h)
+{
+	uint8_t *rgba = (uint8_t *)malloc((size_t)w * h * 4);
+	GLuint tex = 0;
+	int32_t i;
+	if (!rgba)
+		return 0;
+	for (i = 0; i < w * h; ++i)
+	{
+		rgba[i * 4 + 0] = skyEncode(img[i * 3 + 0]);
+		rgba[i * 4 + 1] = skyEncode(img[i * 3 + 1]);
+		rgba[i * 4 + 2] = skyEncode(img[i * 3 + 2]);
+		rgba[i * 4 + 3] = 255;
+	}
+	glGenTextures(1, &tex);
+	glBindTexture(GL_TEXTURE_2D, tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	free(rgba);
+	return tex;
+}
+
+/* Builds the image based lighting textures from the sky image (RGBA8, encoded) */
+static void skyBuildIbl(const uint8_t *pixels, int32_t w, int32_t h)
+{
+	const int32_t w0 = 512, h0 = SDL_max(h * w0 / w, 4), w1 = 128, h1 = SDL_max(h0 / 4, 2), w2 = 32, h2 = SDL_max(h1 / 4, 2);
+	float decode[256], *full, *l0, *l1, *l2;
+	int32_t i;
+	for (i = 0; i < 256; ++i)
+		decode[i] = skyDecode(i / 255.0f);
+	full = (float *)malloc(sizeof(float) * 3 * w * h);
+	l0 = (float *)malloc(sizeof(float) * 3 * w0 * h0);
+	l1 = (float *)malloc(sizeof(float) * 3 * w1 * h1);
+	l2 = (float *)malloc(sizeof(float) * 3 * w2 * h2);
+	if (full && l0 && l1 && l2)
+	{
+		for (i = 0; i < w * h; ++i)
+		{
+			full[i * 3 + 0] = decode[pixels[i * 4 + 0]];
+			full[i * 3 + 1] = decode[pixels[i * 4 + 1]];
+			full[i * 3 + 2] = decode[pixels[i * 4 + 2]];
+		}
+		skyDownsample(full, w, h, l0, w0, h0);
+		skyDownsample(l0, w0, h0, l1, w1, h1);
+		skyBlur(l1, w1, h1, 2.0f);   /* ~6 degrees */
+		skyDownsample(l1, w1, h1, l2, w2, h2);
+		skyBlur(l2, w2, h2, 2.5f);   /* ~30 degrees: diffuse light */
+		g_sky.ibl[0] = skyUploadHdr(l0, w0, h0);
+		g_sky.ibl[1] = skyUploadHdr(l1, w1, h1);
+		g_sky.ibl[2] = skyUploadHdr(l2, w2, h2);
+	}
+	free(full);
+	free(l0);
+	free(l1);
+	free(l2);
+}
+
+/*
+ * Binds the image based lighting textures to units "unit".."unit + 2" for a shader, with the camera of the current
+ * view. Returns false when the track has no sky.
+ */
+static BOOL skyIblBind(int32_t unit, float camToWorld[16], float *yawRadians, float *elevationMin, float sunDirWorld[3], float *sunStrength)
+{
+	int32_t i;
+	if (!gfx.skies || !g_sky.ibl[0] || g_sky.track != gfxCurrentTrack)
+		return false;
+	for (i = 0; i < 3; ++i)
+	{
+		glActiveTexture(GL_TEXTURE0 + unit + i);
+		glBindTexture(GL_TEXTURE_2D, g_sky.ibl[i]);
+	}
+	glActiveTexture(GL_TEXTURE0);
+	memcpy(camToWorld, g_skyView.camToWorld, sizeof(float) * 16);
+	*yawRadians = g_sky.yaw * (float)M_PI / 180.0f;
+	*elevationMin = g_sky.elevationMin;
+	{
+		/* Panorama azimuth = world azimuth + yaw */
+		const float az = (g_sky.sunAzimuth - g_sky.yaw) * (float)M_PI / 180.0f, el = g_sky.sunElevation * (float)M_PI / 180.0f;
+		sunDirWorld[0] = SDL_sinf(az) * SDL_cosf(el);
+		sunDirWorld[1] = SDL_sinf(el);
+		sunDirWorld[2] = SDL_cosf(az) * SDL_cosf(el);
+	}
+	/* Skies whose sun is matched to the game's have a real sun; overcast ones only diffuse light */
+	*sunStrength = g_sky.autoYaw ? 1.0f : 0.0f;
+	return true;
 }
 
 /* Loads "<settings>/skies/trNN.txt" and its image for the track */
@@ -184,6 +356,7 @@ static void skyLoad(int32_t track)
 				w = nw;
 				h = nh;
 			}
+			skyBuildIbl(pixels, w, h);
 			glGenTextures(1, &g_sky.tex);
 			glBindTexture(GL_TEXTURE_2D, g_sky.tex);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);

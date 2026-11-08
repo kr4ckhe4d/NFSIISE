@@ -199,7 +199,7 @@ The game's low resolution sky can be replaced with high resolution panoramas (8K
 
 ### Car models (experimental)
 
-Cars can be replaced with detailed 3D models. The game still runs its own physics and animation; hooks in the game code pass each car's position and orientation to the renderer, which skips the original low-poly car and draws the model instead with physically based shading (paint with clear coat, glass, lights). The model is fitted to the size of the original car automatically and gets all post-processing effects, including reflections on wet roads.
+Cars can be replaced with detailed 3D models. The game still runs its own physics and animation; hooks in the game code pass each car's position and orientation to the renderer, which skips the original low-poly car and draws the model instead with physically based shading (paint with clear coat, glass, lights). The model is fitted to the size of the original car automatically and gets all post-processing effects, including reflections on wet roads. With a sky panorama for the track (see Skies) the car is lit by it: the paint and glass reflect the real sky and the sun, and diffuse light comes from the sky around it.
 
 ![Original McLaren F1 and the replacement model on Outback, and on the wet Proving Grounds at night](screenshots/readme/car_models.jpg)
 
