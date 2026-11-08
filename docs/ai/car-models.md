@@ -47,19 +47,21 @@ same size).
 
 ```
 char  magic[4] = "CMDL"
-u32   version  (1 or 2)
+u32   version  (1, 2 or 3)
 u32   batch count
 per batch:
   f32 color[4]                 linear base color (alpha < 0.99 -> transparent pass)
-  f32 metallic, roughness, transmission, clearcoat
+  f32 metallic, roughness, transmission, clearcoat   (transmission -1: alpha cutout, e.g. leaves; see trees.md)
   f32 emission[3]              linear, already multiplied by strength
   char texture[64]             base color PNG file name next to model.cmdl, "" if none
   version >= 2:
     u32 wheel                  0 body, 1 front left, 2 front right, 3 rear left, 4 rear right
     u32 spins                  1 = rotates around the axle (tyre, rim, disc), 0 = steer only (caliper)
     f32 pivot[3]               wheel centre (bounding box centre of the spinning parts of that wheel)
-  u32 vertex count             (non-indexed triangles)
+  u32 vertex count             (versions 1-2: non-indexed triangles)
   f32 vertices[count][8]       position xyz, normal xyz, uv (v already flipped: 1 - v)
+  version 3:
+    u32 index count, u32 indices[count]   triangles (used by the terrain: shared grid vertices)
 ```
 
 Coordinates are glTF-like (right handed, Y up, +Z front). The loader negates X of positions, normals and pivots.

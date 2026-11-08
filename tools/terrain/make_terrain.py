@@ -6,7 +6,8 @@
 #
 # <lat> <lon>: the real place at the centre of the track (north = world +Z, east = world +X; --rotation turns the
 # terrain clockwise in degrees). Elevation: AWS Terrain Tiles (Terrarium PNG, open data, Mapzen/Tilezen sources).
-# Writes out_dir/model.cmdl (the renderer's model format, world coordinates in metres) and out_dir/terrain.png.
+# Writes out_dir/model.cmdl (the renderer's model format v3, indexed, world coordinates in metres) and
+# out_dir/terrain.png.
 # Near the track the terrain stays below the track's ground (the game's scenery covers it); the real relief takes
 # over from ~400 m. Colours by slope and height (no imagery needed), --palette: desert (red sand, scrub, rock),
 # temperate (fields, forest, rock), alpine (forest, meadows, rock, snow above --snowline metres above sea level),
@@ -184,28 +185,29 @@ rgba = np.ones((TEX, TEX, 4), dtype=np.float32); rgba[:, :, :3] = tex ** (1 / 2.
 img.pixels.foreach_set(rgba.ravel())
 img.filepath_raw = os.path.join(out, 'terrain.png'); img.file_format = 'PNG'; img.save()
 
-# Mesh (non-indexed triangles, cmdl v2: one body batch); X written mirrored (the loader mirrors it back)
 wx = gx + cx; wz = gz + cz
 nrm = np.dstack([-gx_, np.ones_like(height), -gy_]); nrm /= np.linalg.norm(nrm, axis=2, keepdims=True)
 uvx = (gx + R) / (2 * R); uvz = (gz + R) / (2 * R)
-def vert(r, c):
-    return (-wx[r, c], height[r, c], wz[r, c], -nrm[r, c, 0], nrm[r, c, 1], nrm[r, c, 2], uvx[r, c], 1.0 - uvz[r, c])
-tris = []
-for r in range(N - 1):
-    for c in range(N - 1):
-        if max(dist[r, c], dist[r + 1, c + 1]) < 60:  # under the road itself: never visible
-            continue
-        a, b, cc, d = vert(r, c), vert(r, c + 1), vert(r + 1, c + 1), vert(r + 1, c)
-        tris += [a, b, cc, a, cc, d]
-arr = np.array(tris, dtype=np.float32)
+# Mesh (cmdl v3: shared grid vertices + triangle indices, one body batch); X written mirrored (the loader mirrors it
+# back)
+verts = np.zeros((N, N, 8), dtype=np.float32)
+verts[..., 0] = -wx; verts[..., 1] = height; verts[..., 2] = wz
+verts[..., 3] = -nrm[..., 0]; verts[..., 4] = nrm[..., 1]; verts[..., 5] = nrm[..., 2]
+verts[..., 6] = uvx; verts[..., 7] = 1.0 - uvz
+idx = np.arange(N * N, dtype=np.uint32).reshape(N, N)
+a_, b_, c_, d_ = idx[:-1, :-1], idx[:-1, 1:], idx[1:, 1:], idx[1:, :-1]
+keep = ~(np.maximum(dist[:-1, :-1], dist[1:, 1:]) < 60)  # under the road itself: never visible
+quads = np.stack([a_, b_, c_, a_, c_, d_], axis=-1)[keep].reshape(-1)
 with open(os.path.join(out, 'model.cmdl'), 'wb') as f:
-    f.write(b'CMDL' + struct.pack('<II', 2, 1))
+    f.write(b'CMDL' + struct.pack('<II', 3, 1))
     f.write(struct.pack('<4f4f3f', 1, 1, 1, 1, 0.0, 0.95, 0.0, 0.0, 0, 0, 0))
     t = b'terrain.png'; f.write(t + b'\0' * (64 - len(t)))
     f.write(struct.pack('<II3f', 0, 0, 0, 0, 0))
-    f.write(struct.pack('<I', len(arr)))
-    f.write(arr.tobytes())
+    f.write(struct.pack('<I', N * N))
+    f.write(verts.reshape(-1, 8).tobytes())
+    f.write(struct.pack('<I', len(quads)))
+    f.write(quads.astype(np.uint32).tobytes())
 for name in os.listdir(out):
     if name.startswith('tile_'):
         os.remove(os.path.join(out, name))
-print('terrain', len(arr) // 3, 'triangles, centre', cx, cz)
+print('terrain', len(quads) // 3, 'triangles, centre', cx, cz)

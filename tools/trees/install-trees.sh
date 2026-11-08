@@ -66,7 +66,8 @@ table() { printf '%s\n' "${@:2}" > "$SETTINGS/trees/$1.txt"; }
 table tr00 "# Proving Grounds: pines" "F82EAC764398FE75 conifer" "235D418E7A3BF496 conifer"
 table tr03 "# city: broad tree, young tree" "D95FAB17BCBE0828 jacaranda" "1550EF0003E8DC53 jacaranda" \
 	"CF8C7A8A2C4A6E4A jacaranda" "148A2FB008624C6E jacaranda"
-table tr04 "# beach: palms" "D9B073628F4E9030 palm" "86C6450EF41A5920 palm" "2A0169D785188A31 palm" "08907135A058924B palm"
+table tr04 "# beach: palms (two card pairs)" "D9B073628F4E9030 palm" "86C6450EF41A5920 palm" "2A0169D785188A31 palm" "08907135A058924B palm" \
+	"CF7ED6DD99E9E466 palm" "AD4854521FC8D7C1 palm"
 table tr05 "# mountains: broad trees" "50919BA613662E19 jacaranda" "5A7D5F62B3C72587 jacaranda" "0DC39460A7D976E4 jacaranda"
 table tr06 "# temple: broad trees" "8802E2FAA799FA16 jacaranda" "0BD973C42B0FDC4B jacaranda"
 table tr07 "# market: umbrella trees" "9D610F3981545239 jacaranda" "41396C800B7948CB jacaranda" \

@@ -12,10 +12,11 @@
  * physically based shader. Its projection and depth match the game's exactly, so it sorts correctly against
  * the track and gets all post-processing effects.
  *
- * Model file (.cmdl, little endian): "CMDL", u32 version (1 or 2), u32 batch count, then per batch:
+ * Model file (.cmdl, little endian): "CMDL", u32 version (1, 2 or 3), u32 batch count, then per batch:
  *   f32 color[4], metallic, roughness, transmission, clearcoat, emission[3]; char texture[64];
  *   version 2: u32 wheel (0 - body, 1..4 - front left, front right, rear left, rear right), u32 spins, f32 pivot[3];
- *   u32 vertex count; vertices: f32 position[3], normal[3], uv[2] (Y up, front towards +Z, metres, right handed).
+ *   u32 vertex count; vertices: f32 position[3], normal[3], uv[2] (Y up, front towards +Z, metres, right handed);
+ *   version 3: u32 index count, u32 indices (triangles); versions 1-2: every 3 vertices are a triangle.
  *
  * Wheels spin with the distance the car travels and the front wheels steer by the turn rate of the car
  * (bicycle model), both measured from the car's motion.
@@ -29,8 +30,8 @@
 
 typedef struct
 {
-	GLuint vbo, tex;
-	GLsizei count;
+	GLuint vbo, ibo, tex;
+	GLsizei count, indexCount; /* ibo: indexed (cmdl version 3) */
 	float color[4], metallic, roughness, transmission, clearcoat, emission[3];
 	int32_t wheel;   /* 0 - body, 1..4 - front left, front right, rear left, rear right */
 	BOOL spins;
@@ -207,7 +208,7 @@ static BOOL carLoadModel(CarModel *m)
 	m->failed = true;
 	if (!f)
 		return false;
-	if (fread(magic, 4, 1, f) != 1 || memcmp(magic, "CMDL", 4) || fread(&version, 4, 1, f) != 1 || version < 1 || version > 2 || fread(&count, 4, 1, f) != 1 || !count || count > 256)
+	if (fread(magic, 4, 1, f) != 1 || memcmp(magic, "CMDL", 4) || fread(&version, 4, 1, f) != 1 || version < 1 || version > 3 || fread(&count, 4, 1, f) != 1 || !count || count > 256)
 	{
 		fclose(f);
 		return false;
@@ -262,6 +263,24 @@ static BOOL carLoadModel(CarModel *m)
 				m->bmin[c] = SDL_min(m->bmin[c], v[c]);
 				m->bmax[c] = SDL_max(m->bmax[c], v[c]);
 			}
+		}
+		if (version >= 3)
+		{
+			uint32_t ni, *idx;
+			if (fread(&ni, 4, 1, f) != 1 || ni > 64 * 1024 * 1024 || !(idx = malloc((size_t)ni * 4)) || fread(idx, 4, ni, f) != ni)
+			{
+				free(data);
+				break;
+			}
+			for (k = 0; k < ni; ++k)
+				if (idx[k] >= nv)
+					idx[k] = 0;
+			glGenBuffers(1, &b->ibo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b->ibo);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)ni * 4, idx, GL_STATIC_DRAW);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+			b->indexCount = ni;
+			free(idx);
 		}
 		glGenBuffers(1, &b->vbo);
 		glBindBuffer(GL_ARRAY_BUFFER, b->vbo);
@@ -925,7 +944,16 @@ static void carDrawBatches(const CarModel *m, const CarDraw *d, BOOL transparent
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 32, (const void *)0);
 		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 32, (const void *)12);
 		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 32, (const void *)24);
-		glDrawArrays(GL_TRIANGLES, 0, b->count);
+		if (b->ibo)
+		{
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b->ibo);
+			glDrawElements(GL_TRIANGLES, b->indexCount, GL_UNSIGNED_INT, (const void *)0);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+		}
+		else
+		{
+			glDrawArrays(GL_TRIANGLES, 0, b->count);
+		}
 	}
 }
 

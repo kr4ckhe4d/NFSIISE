@@ -72,4 +72,4 @@ compare their centroid with the track centre and set `--rotation` so the real se
 - Outback's surroundings are mostly flat in reality: Uluru (east, ~2 deg high) and Kata Tjuta (west) are the
   features. A more dramatic choice of place (or `--rotation`) is a design decision.
 - Only Outback has been seen by the owner; the other six places/rotations/palettes are headless-checked only.
-- The dissolve is a dither pattern (visible at low resolutions); the mesh is not indexed (50 MB for Outback).
+- The dissolve is a dither pattern (visible at low resolutions). The mesh is indexed (cmdl v3, 15 MB per track).

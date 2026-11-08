@@ -36,7 +36,8 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Other tracks: real places for all seven (tools/terrain/install-terrain.sh), palettes (desert, temperate,
       alpine with snow line, mediterranean), sea from the DEM, coastal tracks turned to match the game's water
 - [ ] Owner check of each track on the real GPU (place, rotation, colours)
-- [ ] Index the mesh (smaller files), better surface colours
+- [x] Indexed mesh (model format v3): 50 MB -> 15 MB per track
+- [ ] Better surface colours
 
 ## 1f. Per-track sky tuning `[~]`
 - [x] Hide the game's additive cloud layer under the panorama (`hide`; city sky was white), haze limited to 2x the
