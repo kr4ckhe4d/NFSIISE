@@ -396,6 +396,93 @@ static CarMotion *carUpdateMotion(const uint8_t *object, const CarGeo *g)
 	return cm;
 }
 
+/*
+ * Headlights: the player's car is the body nearest to the camera, in front of it and facing the same way (the chase
+ * view; the rear-view mirror sees cars facing it). Collected while the game draws, used by the post-processing.
+ */
+typedef struct
+{
+	BOOL valid;
+	float rot[9], origin[3], dist;
+} CarHeadlight;
+static CarHeadlight g_hlCandidate, g_hlFrame;
+
+static void carHeadlightCandidate(const float rot[9], const float origin[3])
+{
+	const float dist = SDL_sqrtf(origin[0] * origin[0] + origin[1] * origin[1] + origin[2] * origin[2]);
+	/* Car forward (car +Z) in camera space is column 2 of rot */
+	if (origin[2] < 0.5f || dist > 15.0f || rot[8] < 0.6f)
+		return;
+	if (g_hlCandidate.valid && g_hlCandidate.dist <= dist)
+		return;
+	g_hlCandidate.valid = true;
+	g_hlCandidate.dist = dist;
+	memcpy(g_hlCandidate.rot, rot, sizeof g_hlCandidate.rot);
+	memcpy(g_hlCandidate.origin, origin, sizeof g_hlCandidate.origin);
+}
+
+/* Called once per frame (buffer swap): the frame's player car becomes the headlight source */
+static void carHeadlightFrame()
+{
+	g_hlFrame = g_hlCandidate;
+	g_hlCandidate.valid = false;
+}
+
+/*
+ * Headlights of this frame in camera space: two lamp positions and the beam basis (right, up, forward as columns).
+ * Returns the strength (0 - off): the sky's "headlights" key. Without a visible player car (bumper/cockpit view)
+ * the lamps sit below the camera.
+ */
+static float carHeadlights(float pos[6], float basis[9], float *nightAmbient)
+{
+	static const float lamp[2][3] = {{-0.65f, 0.45f, 2.05f}, {0.65f, 0.45f, 2.05f}};
+	const float pitch = -0.035f; /* Low beam aims slightly down */
+	float fwd[3], up[3], right[3];
+	int32_t i, r;
+	*nightAmbient = g_sky.track == gfxCurrentTrack ? g_sky.nightAmbient : 1.0f;
+	if (g_sky.headlights <= 0.0f)
+		return 0.0f;
+	if (g_hlFrame.valid)
+	{
+		const float *m = g_hlFrame.rot;
+		for (i = 0; i < 2; ++i)
+			for (r = 0; r < 3; ++r)
+				pos[i * 3 + r] = m[r * 3 + 0] * lamp[i][0] + m[r * 3 + 1] * lamp[i][1] + m[r * 3 + 2] * lamp[i][2] + g_hlFrame.origin[r];
+		for (r = 0; r < 3; ++r)
+		{
+			right[r] = m[r * 3 + 0];
+			up[r] = m[r * 3 + 1];
+			fwd[r] = m[r * 3 + 2];
+		}
+	}
+	else
+	{
+		for (i = 0; i < 2; ++i)
+		{
+			pos[i * 3 + 0] = lamp[i][0];
+			pos[i * 3 + 1] = -0.8f;
+			pos[i * 3 + 2] = 0.5f;
+		}
+		right[0] = 1.0f; right[1] = 0.0f; right[2] = 0.0f;
+		up[0] = 0.0f; up[1] = 1.0f; up[2] = 0.0f;
+		fwd[0] = 0.0f; fwd[1] = 0.0f; fwd[2] = 1.0f;
+	}
+	/* Pitch the beam down around the car's right axis */
+	for (r = 0; r < 3; ++r)
+	{
+		const float f = fwd[r], u = up[r];
+		fwd[r] = f * SDL_cosf(pitch) + u * SDL_sinf(pitch);
+		up[r] = u * SDL_cosf(pitch) - f * SDL_sinf(pitch);
+	}
+	for (r = 0; r < 3; ++r)
+	{
+		basis[0 + r] = right[r];
+		basis[3 + r] = up[r];
+		basis[6 + r] = fwd[r];
+	}
+	return g_sky.headlights;
+}
+
 REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const int32_t *t, const uint8_t *object)
 {
 	int32_t gi, i = -1;
@@ -403,8 +490,6 @@ REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const in
 	for (gi = g_carGeoCount - 1; gi >= 0 && i < 0; --gi)
 	{
 		int32_t k;
-		if (!g_carGeos[gi].model || g_carGeos[gi].model->failed)
-			continue;
 		for (k = 0; k < 32; ++k)
 		{
 			if (carGeoPart(g_carGeos[gi].geo, k) == part)
@@ -416,7 +501,22 @@ REALIGN STDCALL void carPartHook(const uint8_t *part, const int32_t *m, const in
 		if (i >= 0)
 			break;
 	}
-	if (i < 0 || !gfx.carModels)
+	if (i < 0)
+		return;
+	if (i == 1 || i == 21)
+	{
+		/* Any car body (replaced or not): headlight source candidate */
+		const int32_t *pos = (const int32_t *)(part + 8);
+		float rot[9], origin[3];
+		int32_t r, c;
+		for (r = 0; r < 3; ++r)
+			for (c = 0; c < 3; ++c)
+				rot[r * 3 + c] = m[c * 3 + r] / 65536.0f;
+		for (r = 0; r < 3; ++r)
+			origin[r] = (t[r] - (pos[0] / 65536.0f * m[0 * 3 + r] + pos[1] / 65536.0f * m[1 * 3 + r] + pos[2] / 65536.0f * m[2 * 3 + r])) / 65536.0f;
+		carHeadlightCandidate(rot, origin);
+	}
+	if (!gfx.carModels || !g_carGeos[gi].model || g_carGeos[gi].model->failed)
 		return;
 	/* Shadow (part 9) stays, everything else is replaced */
 	if (i == 9 || i == 10)

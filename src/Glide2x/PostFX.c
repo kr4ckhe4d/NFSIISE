@@ -645,6 +645,10 @@ static const char g_postCompositeSrc[] =
 	"uniform float uReflections;\n"
 	"uniform float uShaftStrength;\n"
 	"uniform float uHaze;\n"
+	"uniform float uNightAmbient;\n" /* Night: scenery darkened to this, bright lights stay */
+	"uniform float uHlStrength;\n" /* Headlights: strength, lamp positions and beam basis (camera space) */
+	"uniform vec3 uHlPos[2];\n"
+	"uniform mat3 uHlBasis;\n"
 	"uniform vec2 uAOTexel;\n"
 	"uniform vec2 uAOSize;\n"
 	"uniform float uAOStrength;\n"
@@ -696,6 +700,33 @@ static const char g_postCompositeSrc[] =
 	"	if (uDebug == 6) { gl_FragColor = vec4(toGamma(compressHDR(shafts, 0.5)), 1.0); return; }\n"
 	"	vec3 hdr = expandHDR(toLinear(src), uWhite);\n"
 	"	hdr *= mix(1.0, ao, mask);\n"
+	/*
+	 * Headlights (low beam): two spots with a sharp upper cut-off and a hot spot, inverse square fall-off, lighting
+	 * the surface's own colour (the game's night lighting darkened it: the light brings the texture back)
+	 */
+	"	setView(vUV);\n"
+	"	vec3 albedo = hdr, headlight = vec3(0.0);\n"
+	"	if (uHlStrength > 0.0 && depth < 0.999999 && !gSub)\n"
+	"	{\n"
+	"		vec3 P = viewPos(vUV, linearDepth(depth));\n"
+	"		vec3 N = normalize(cross(dFdx(P), dFdy(P)));\n"
+	"		if (dot(N, P) > 0.0) N = -N;\n"
+	"		float light = 0.0;\n"
+	"		for (int i = 0; i < 2; ++i)\n"
+	"		{\n"
+	"			vec3 L = uHlPos[i] - P;\n"
+	"			float d2 = dot(L, L);\n"
+	"			vec3 l = L * inversesqrt(d2);\n"
+	"			vec3 v = -l * uHlBasis;\n" /* Direction from the lamp in beam space (right, up, forward) */
+	"			if (v.z <= 0.05) continue;\n"
+	"			float h = v.x / v.z, e = v.y / v.z;\n"
+	"			float vert = e < 0.0 ? exp(-e * e / 0.02) : exp(-e * e / 0.0004);\n"
+	"			float beam = exp(-h * h / 0.25) * vert + 2.0 * exp(-h * h / 0.012 - (e + 0.03) * (e + 0.03) / 0.002);\n"
+	"			light += beam * 150.0 / (d2 + 9.0) * max(dot(N, l), 0.0);\n"
+	"		}\n"
+	"		if (uDebug == 7) { gl_FragColor = vec4(vec3(compressHDR(vec3(light * uHlStrength), 1.0)), 1.0); return; }\n"
+	"		headlight = albedo * uHlStrength * min(light, 4.0) * vec3(1.0, 0.95, 0.85) * 1.5 * mask;\n"
+	"	}\n"
 	/* Aerial perspective: distant geometry fades towards the sky color */
 	"	if (uHaze > 0.0 && depth < 0.999999)\n"
 	"	{\n"
@@ -712,6 +743,10 @@ static const char g_postCompositeSrc[] =
 	"		hdr = mix(hdr, skyColor, uHaze * (1.0 - exp(-linearDepth(depth) * 0.003)) * mask);\n"
 	"	}\n"
 	"	hdr = mix(hdr, refl.rgb, refl.a * mask);\n"
+	/* Night: the scenery (with its haze and reflections) darkened, bright lights kept; then the headlights */
+	"	if (uNightAmbient < 1.0 && depth < 0.999999)\n"
+	"		hdr *= mix(1.0, mix(uNightAmbient, 1.0, smoothstep(0.65, 0.9, luma(src))), mask);\n"
+	"	hdr += headlight;\n"
 	"	hdr += (bloom + shafts) * mask;\n"
 	"	if (uToneMapping > 0.5)\n"
 	"	{\n"
@@ -1288,6 +1323,8 @@ static void postResolve()
 static BOOL skyMainPanorama(int32_t unit, float camToWorld[16], float *yawRadians, float *elevationMin);
 /* Sky.c: camera -> world matrix of the main view of this frame; false if unknown */
 static BOOL skyMainCamera(float camToWorld[16]);
+/* CarModels.c: the player's headlights in camera space (two lamps, beam basis); returns the strength, 0 - off */
+static float carHeadlights(float pos[6], float basis[9], float *nightAmbient);
 
 static void postViewUniforms(GLuint prog, float projX, float projY)
 {
@@ -1531,6 +1568,17 @@ static void postEffects()
 			postUniform2f(g_post.compositeProg, "uPanoParams", yaw, elevationMin);
 		}
 	}
+	{
+		float hlPos[6], hlBasis[9], night = 1.0f;
+		const float hl = carHeadlights(hlPos, hlBasis, &night);
+		postUniform1f(g_post.compositeProg, "uHlStrength", hl);
+		postUniform1f(g_post.compositeProg, "uNightAmbient", night);
+		if (hl > 0.0f)
+		{
+			glUniform3fv(glGetUniformLocation(g_post.compositeProg, "uHlPos"), 2, hlPos);
+			glUniformMatrix3fv(glGetUniformLocation(g_post.compositeProg, "uHlBasis"), 1, GL_FALSE, hlBasis);
+		}
+	}
 	postUniform2f(g_post.compositeProg, "uAOTexel", 1.0f / g_post.aoA.w, 1.0f / g_post.aoA.h);
 	postUniform2f(g_post.compositeProg, "uAOSize", g_post.aoA.w, g_post.aoA.h);
 	postUniform1f(g_post.compositeProg, "uAOStrength", ao ? gfx.aoStrength : 0.0f);
@@ -1636,9 +1684,9 @@ static void postPresent(int32_t vx, int32_t vy, int32_t vw, int32_t vh, int32_t 
 	}
 	if (gfxDebugViewRequest >= 0)
 	{
-		static const char *names[] = {"off", "world mask", "ambient occlusion", "depth", "bloom", "reflections", "sun shafts"};
+		static const char *names[] = {"off", "world mask", "ambient occlusion", "depth", "bloom", "reflections", "sun shafts", "headlights"};
 		gfxDebugViewRequest = -1;
-		g_post.debugView = (g_post.debugView + 1) % 7;
+		g_post.debugView = (g_post.debugView + 1) % 8;
 		fprintf(stderr, "Debug view: %s\n", names[g_post.debugView]);
 	}
 

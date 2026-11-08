@@ -1294,6 +1294,7 @@ REALIGN STDCALL void grBufferSwap(int swap_interval)
 {
 	carModelsDraw(false);
 #ifdef GL2_ENHANCED
+	carHeadlightFrame();
 	if (g_skyReplacing)
 		skySetFog(false);
 	g_skyReplacing = false;

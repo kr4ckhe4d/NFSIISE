@@ -17,22 +17,22 @@ mkdir -p "$SETTINGS/skies"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# track  Poly Haven id                          brightness  auto_yaw  # location (menu order) - game's sky
+# track  Poly Haven id                          brightness  auto_yaw  headlights  night  # location (menu order) - game's sky
 SKIES="
-tr00  kloppenheim_07_puresky                 0.035       0         # Proving Grounds - night, rain
-tr02  kloppenheim_06_puresky                 0.20        1         # Outback - sunset
-tr04  kloofendal_48d_partly_cloudy_puresky   0.30        1         # beach - clear day
-tr05  kloofendal_38d_partly_cloudy_puresky   0.30        1         # tunnel start
-tr03  kloppenheim_01_puresky                 0.08        1         # city - rain, low sun
-tr06  kloofendal_misty_morning_puresky       0.25        0         # cliffs - misty
-tr07  kloofendal_overcast_puresky            0.22        0         # market - overcast
+tr00  kloppenheim_07_puresky                 0.035       0         1.0   0.30  # Proving Grounds - night, rain
+tr02  kloppenheim_06_puresky                 0.20        1         0     1     # Outback - sunset
+tr04  kloofendal_48d_partly_cloudy_puresky   0.30        1         0     1     # beach - clear day
+tr05  kloofendal_38d_partly_cloudy_puresky   0.30        1         0     1     # tunnel start
+tr03  kloppenheim_01_puresky                 0.08        1         0.4   1     # city - rain, low sun
+tr06  kloofendal_misty_morning_puresky       0.25        0         0     1     # cliffs - misty
+tr07  kloofendal_overcast_puresky            0.22        0         0     1     # market - overcast
 "
-echo "$SKIES" | while read -r track id brightness autoyaw rest; do
+echo "$SKIES" | while read -r track id brightness autoyaw headlights night rest; do
 	[[ -z "$track" ]] && continue
 	echo "== $track: $id"
 	curl -fL -o "$TMP/sky.hdr" "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/$RES/${id}_$RES.hdr"
 	blender -b --python "$HERE/make_sky.py" -- "$TMP/sky.hdr" "$SETTINGS/skies/$track" \
-		--brightness "$brightness" --auto-yaw "$autoyaw" | grep -E "^sky|Error"
+		--brightness "$brightness" --auto-yaw "$autoyaw" --headlights "$headlights" --night-ambient "$night" | grep -E "^sky|Error"
 	rm -f "$TMP/sky.hdr"
 done
 echo "Installed: $SETTINGS/skies"

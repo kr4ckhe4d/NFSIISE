@@ -32,6 +32,8 @@ typedef struct
 	float elevationMin;     /* Degrees */
 	float yaw, sunAzimuth, sunElevation, blend[2];
 	float gameFog;          /* Share of the game's fog colour in the sky fog (0 - panorama only) */
+	float headlights;       /* Headlight strength of the player's car (0 - off, 1 - night) */
+	float nightAmbient;     /* Night: the scenery is darkened to this (1 - off), bright lights stay */
 	BOOL autoYaw;
 	/* Sun alignment */
 	uint32_t startTicks;    /* Views without a glow in the game's sky */
@@ -317,6 +319,7 @@ static void skyLoad(int32_t track)
 	g_sky.blend[1] = 6.0f;
 	g_sky.autoYaw = true;
 	g_sky.gameFog = 0.5f;
+	g_sky.nightAmbient = 1.0f;
 	if (track < 0 || !getSettingsDir())
 		return;
 	snprintf(path, sizeof path, "%s/skies/tr%02d.txt", getSettingsDir(), track);
@@ -344,6 +347,10 @@ static void skyLoad(int32_t track)
 			sscanf(v, "%f %f", &g_sky.blend[0], &g_sky.blend[1]);
 		else if (!strcmp(line, "auto_yaw"))
 			g_sky.autoYaw = atoi(v) != 0;
+		else if (!strcmp(line, "night_ambient"))
+			g_sky.nightAmbient = SDL_max(0.05f, SDL_min(1.0f, (float)atof(v)));
+		else if (!strcmp(line, "headlights"))
+			g_sky.headlights = SDL_max(0.0f, (float)atof(v));
 		else if (!strcmp(line, "game_fog"))
 			g_sky.gameFog = SDL_max(0.0f, SDL_min(1.0f, (float)atof(v)));
 	}

@@ -40,7 +40,13 @@ expansion, white = 4) and compress back. Debug views: `Alt+M` cycles 0 off, 1 wo
 3 depth, 4 bloom, 5 reflections, 6 sun shafts. `Alt+P` toggles effects, `Alt+S` screenshot. `Alt+D` frame capture
 (`captureTriangle` in OpenGL2.c): one line per game triangle (outcome: world / overlay / backdrop / terrain-hidden /
 backdrop-replaced, texture hash, alpha mode, blend, depth mask, clip window, vertices x y oow alpha) plus the textures
-used, as uploaded (HD if replaced). Ask the owner to press it when something looks wrong in a scene that is hard to
+used, as uploaded (HD if replaced). Debug view 7 shows the headlight light alone.
+Headlights (`carHeadlights` in CarModels.c, composite shader in PostFX.c): the player car is the car body nearest
+the camera, in front of it and facing the same way (any car, replaced or not; collected in `carPartHook`,
+latched per frame in `grBufferSwap`); without one (bumper view) the lamps sit below the camera. Two low-beam spots
+(sharp upper cut-off, hot spot, inverse square, N from depth derivatives) light the surface colour (`albedo` before
+haze); strength and night darkening come from the sky file (`headlights`, `night_ambient`).
+Ask the owner to press it when something looks wrong in a scene that is hard to
 reach headless.
 
 ## Settings (GfxSettings in Wrapper.h, parsed in Wrapper.c)

@@ -23,6 +23,8 @@ first 3D triangle of the view          -> skyDrawPending(): full-view pass, pano
 | `horizon_blend` | `from to` elevations (degrees) where the panorama fades in over the game's backdrop |
 | `auto_yaw` | 1: measure the game's sun (gradient glow) and rotate the panorama to match; 0 for overcast |
 | `game_fog` | share of the game's fog colour in the sky fog (default 0.5) |
+| `headlights` | headlight strength of the player's car (0 off, default; tr00 1.0, tr03 0.4) |
+| `night_ambient` | night: world pixels (after haze/reflections) darkened to this, pixels brighter than ~0.65-0.9 luma (lamps, lit windows) kept (1 off, default; tr00 0.30) |
 
 Image encoding: linear HDR * brightness scale -> `c / (1 + 0.75 c)` -> gamma 1/2.2 -> 8 bit. This is the inverse of
 the post-processing's `expandHDR` (white = 4), so up to 4x white survives and bright sky areas drive bloom/shafts.

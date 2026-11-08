@@ -14,7 +14,7 @@ import numpy as np
 
 argv = sys.argv[sys.argv.index('--') + 1:]
 src, dst = argv[0], argv[1]
-opts = dict(width=8192, elevation_min=-8.0, brightness=0.2, yaw=0.0, blend_from=0.0, blend_to=1.5, auto_yaw=1)
+opts = dict(width=8192, elevation_min=-8.0, brightness=0.2, yaw=0.0, blend_from=0.0, blend_to=1.5, auto_yaw=1, headlights=0.0, night_ambient=1.0)
 i = 2
 while i < len(argv):
     key = argv[i].lstrip('-').replace('-', '_')
@@ -76,4 +76,8 @@ with open(dst + '.txt', 'w') as f:
     f.write(f'sun_elevation={sun_el:.3f}\n')
     f.write(f'horizon_blend={opts["blend_from"]:.2f} {opts["blend_to"]:.2f}\n')
     f.write(f'auto_yaw={int(opts["auto_yaw"])}\n')
+    if opts['night_ambient'] < 1:
+        f.write(f'night_ambient={opts["night_ambient"]:.2f}\n')
+    if opts['headlights'] > 0:
+        f.write(f'headlights={opts["headlights"]:.2f}\n')
 print(f'sky {enc.shape[1]}x{enc.shape[0]} scale {scale:.4f} sun az {sun_az:.1f} el {sun_el:.1f}')
