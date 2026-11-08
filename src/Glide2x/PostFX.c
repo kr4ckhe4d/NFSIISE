@@ -806,6 +806,9 @@ static const char g_postCompositeSrc[] =
 	"			vec2 puv = vec2(fract((atan(d.x, d.z) + uPanoParams.x) / 6.2831853 + 0.5), (90.0 - el) / (90.0 - uPanoParams.y));\n"
 	"			skyColor = mix(skyColor, expandHDR(toLinear(texture2D(uPano, puv).rgb), uWhite), 0.5);\n"
 	"		}\n"
+	/* Towards a low sun the panorama is very bright: limit the haze to twice the average sky */
+	"		vec3 skyAvg = texture2D(uSky, vec2(0.5 / 4.0, 0.5)).rgb;\n"
+	"		skyColor *= min(1.0, 2.0 * luma(skyAvg) / max(luma(skyColor), 1e-4));\n"
 	"		hdr = mix(hdr, skyColor, uHaze * (1.0 - exp(-linearDepth(depth) * 0.003)) * mask);\n"
 	"	}\n"
 	"	hdr = mix(hdr, refl.rgb, refl.a * mask);\n"
@@ -1395,6 +1398,8 @@ static float carHeadlights(float pos[6], float basis[9], float *nightAmbient);
 static float skySunCamera(float dir[3]);
 /* Sky.c: camera motion since the previous frame (previous camera space = m * current + t) */
 static BOOL skyCameraMotion(float m[9], float t[3], float *dtSeconds);
+/* Sky.c: exposure of the track's sky file (1 - default) */
+static float skyExposure();
 
 static void postViewUniforms(GLuint prog, float projX, float projY)
 {
@@ -1671,7 +1676,7 @@ static void postEffects()
 	/* Bloom is energy-normalized over the levels */
 	postUniform1f(g_post.compositeProg, "uBloomStrength", bloom ? gfx.bloomStrength / g_post.bloomLevels : 0.0f);
 	postUniform1f(g_post.compositeProg, "uWhite", whiteS);
-	postUniform1f(g_post.compositeProg, "uExposure", gfx.exposure);
+	postUniform1f(g_post.compositeProg, "uExposure", gfx.exposure * skyExposure());
 	postUniform1f(g_post.compositeProg, "uContrast", gfx.contrast);
 	postUniform1f(g_post.compositeProg, "uSaturation", gfx.saturation);
 	postUniform1f(g_post.compositeProg, "uWarmth", gfx.warmth);

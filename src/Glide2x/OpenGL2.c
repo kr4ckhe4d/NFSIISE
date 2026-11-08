@@ -1514,6 +1514,13 @@ REALIGN STDCALL void grDrawTriangle(const GrVertex *a, const GrVertex *b, const 
 			return;
 		}
 	}
+	/* Game sky layers replaced by the panorama */
+	if (g_textureEnabled > 0.5f && skyHides(g_boundHash))
+	{
+		if (g_capFile)
+			captureTriangle(a, b, c, "sky-hidden");
+		return;
+	}
 	/* The game's stand-ins for distant terrain are hidden while the real terrain is drawn */
 	if (terrainHidesTriangle(a, b, c))
 	{

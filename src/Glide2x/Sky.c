@@ -34,6 +34,9 @@ typedef struct
 	float gameFog;          /* Share of the game's fog colour in the sky fog (0 - panorama only) */
 	float headlights;       /* Headlight strength of the player's car (0 - off, 1 - night) */
 	float nightAmbient;     /* Night: the scenery is darkened to this (1 - off), bright lights stay */
+	float exposure;         /* Exposure of the whole picture on this track (1 - default) */
+	uint64_t hide[16];      /* Textures of game sky layers (e.g. rain clouds) hidden while the panorama is drawn */
+	int32_t hideCount;
 	BOOL autoYaw;
 	/* Sun alignment */
 	uint32_t startTicks;    /* Views without a glow in the game's sky */
@@ -327,6 +330,23 @@ static float skySunCamera(float dir[3])
 	return 1.0f;
 }
 
+/* True for a texture of a game sky layer that the panorama of the current view replaces ("hide" in the sky file) */
+static inline BOOL skyHides(uint64_t hash)
+{
+	int32_t i;
+	if (!g_skyReplacing)
+		return false;
+	for (i = 0; i < g_sky.hideCount; ++i)
+		if (g_sky.hide[i] == hash)
+			return true;
+	return false;
+}
+
+static float skyExposure()
+{
+	return (gfx.skies && g_sky.track == gfxCurrentTrack) ? g_sky.exposure : 1.0f;
+}
+
 /*
  * Camera motion of the main view since the previous frame, for motion blur: previous camera space = m * current
  * camera space + t (m column-major for GLSL). Call once per frame. False without a new camera in both frames, or
@@ -392,6 +412,7 @@ static void skyLoad(int32_t track)
 	g_sky.autoYaw = true;
 	g_sky.gameFog = 0.5f;
 	g_sky.nightAmbient = 1.0f;
+	g_sky.exposure = 1.0f;
 	if (track < 0 || !getSettingsDir())
 		return;
 	snprintf(path, sizeof path, "%s/skies/tr%02d.txt", getSettingsDir(), track);
@@ -419,6 +440,17 @@ static void skyLoad(int32_t track)
 			sscanf(v, "%f %f", &g_sky.blend[0], &g_sky.blend[1]);
 		else if (!strcmp(line, "auto_yaw"))
 			g_sky.autoYaw = atoi(v) != 0;
+		else if (!strcmp(line, "hide"))
+		{
+			char *tok = strtok(v, ", \t");
+			while (tok && g_sky.hideCount < (int32_t)(sizeof g_sky.hide / sizeof *g_sky.hide))
+			{
+				g_sky.hide[g_sky.hideCount++] = strtoull(tok, NULL, 16);
+				tok = strtok(NULL, ", \t");
+			}
+		}
+		else if (!strcmp(line, "exposure"))
+			g_sky.exposure = SDL_max(0.1f, SDL_min(4.0f, (float)atof(v)));
 		else if (!strcmp(line, "night_ambient"))
 			g_sky.nightAmbient = SDL_max(0.05f, SDL_min(1.0f, (float)atof(v)));
 		else if (!strcmp(line, "headlights"))

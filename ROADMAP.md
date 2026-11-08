@@ -51,6 +51,11 @@ Realistic graphics for Need for Speed II SE on top of the original game code. St
 - [x] Camera motion blur of the scenery (`MotionBlur`), cars stay sharp
 - [ ] Owner check of the strength at 165 Hz; camera shake / FOV kick (would touch game camera logic)
 
+## 1f. Per-track sky tuning `[~]`
+- [x] Hide the game's additive cloud layer under the panorama (`hide`; city sky was white), haze limited to 2x the
+      average sky towards a low sun, per-track `exposure`
+- [ ] Owner check of each track's brightness on the real display
+
 ## 2. Car polish `[ ]`
 - [x] Reflections of the scene in car paint and glass (dynamic environment map accumulated from the screen)
 - [x] Draw cars before translucent effects (opaque parts right after the sky, glass at the end)

@@ -23,6 +23,8 @@ first 3D triangle of the view          -> skyDrawPending(): full-view pass, pano
 | `horizon_blend` | `from to` elevations (degrees) where the panorama fades in over the game's backdrop |
 | `auto_yaw` | 1: measure the game's sun (gradient glow) and rotate the panorama to match; 0 for overcast |
 | `game_fog` | share of the game's fog colour in the sky fog (default 0.5) |
+| `hide` | textures of the game's own cloud layer hidden while the panorama is drawn: an additive cloud texture ~150 m away covering most of the screen (tr03/tr06 817E383DB041AE57, tr04 0015E218AA358306, tr05 F14849AB59B178B0) whitened the panorama (city sky turned white). Found with an Alt+D capture: large-area additive textured triangles beyond 50 m |
+| `exposure` | exposure of the whole picture on the track (default 1) |
 | `headlights` | headlight strength of the player's car (0 off, default; tr00 1.0, tr03 0.4) |
 | `night_ambient` | night: world pixels (after haze/reflections) darkened to this, pixels brighter than ~0.65-0.9 luma (lamps, lit windows) kept (1 off, default; tr00 0.30) |
 
